@@ -15,6 +15,13 @@
                         └─ 托管 web/dist 静态资源
 ```
 
+## 获取代码
+
+```bash
+git clone https://github.com/laterinc/gomoku.git
+cd gomoku
+```
+
 ## 功能
 
 | 模块 | 能力 |
@@ -64,7 +71,7 @@ gomoku/
 环境：Node.js ≥ 18、Python ≥ 3.11。
 
 ```bash
-cd gomoku
+# 在仓库根目录（gomoku/）执行
 ./scripts/dev.sh
 ```
 
@@ -91,7 +98,7 @@ npm run dev
 ## 生产 / 公网部署（单端口）
 
 ```bash
-cd gomoku
+# 在仓库根目录执行
 ./scripts/start.sh          # 自动构建前端 + 建 venv + 启动 8765
 ```
 
@@ -190,7 +197,7 @@ sudo systemctl enable --now gomoku
 ### 方式四：Docker
 
 ```bash
-cd gomoku
+# 在仓库根目录执行
 docker compose up -d --build
 # 或
 docker build -t gomoku .
@@ -231,7 +238,7 @@ cd web && npx tsc --noEmit && npm run build
 
 ```bash
 python3 -m venv /tmp/pwenv && /tmp/pwenv/bin/pip install playwright
-cd gomoku
+# 在仓库根目录执行
 /tmp/pwenv/bin/python scripts/ui_smoke.py --url http://127.0.0.1:8765
 ```
 
