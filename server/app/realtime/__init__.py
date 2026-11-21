@@ -1,0 +1,41 @@
+"""实时游戏协议 v3 的二进制编解码（骨架，尚未接入房间循环）。"""
+
+from .codec import (
+    FRAME_INPUT,
+    FRAME_SNAPSHOT,
+    FLAG_ACK_REQUIRED,
+    FLAG_DELTA,
+    FLAG_KEYFRAME,
+    EntityDelta,
+    EntitySnapshot,
+    InputFrame,
+    SnapshotDelta,
+    SnapshotKeyframe,
+    decode_delta,
+    decode_input,
+    decode_keyframe,
+    decode_snapshot,
+    encode_delta,
+    encode_input,
+    encode_keyframe,
+)
+
+__all__ = [
+    "FRAME_INPUT",
+    "FRAME_SNAPSHOT",
+    "FLAG_ACK_REQUIRED",
+    "FLAG_DELTA",
+    "FLAG_KEYFRAME",
+    "EntityDelta",
+    "EntitySnapshot",
+    "InputFrame",
+    "SnapshotDelta",
+    "SnapshotKeyframe",
+    "decode_delta",
+    "decode_input",
+    "decode_keyframe",
+    "decode_snapshot",
+    "encode_delta",
+    "encode_input",
+    "encode_keyframe",
+]

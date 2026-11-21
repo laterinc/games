@@ -21,6 +21,7 @@
 | 音效 | WebAudio 实时合成（落子/胜负/和棋），可静音并记住设置 |
 | 战绩 | 每位玩家保留最近 10 局，标记游戏、模式、结果、手数；仅保存在服务端内存 |
 | 渲染 | 棋盘全部 **Canvas 2D**（离屏静态层 + 按需重绘 + DPR 自适应），无 SVG/DOM 棋子 |
+| 协议 | 回合制 JSON（v2）；实时游戏 v3 二进制帧编解码骨架 + 前后端共享 golden fixture |
 
 ### 前端路由
 
@@ -64,6 +65,8 @@ games/
 │   │   │   ├── base.py      # GameRules 插件接口
 │   │   │   ├── gomoku.py    # 五子棋规则
 │   │   │   └── chess.py     # 中国象棋规则 + AI
+│   │   ├── realtime/
+│   │   │   └── codec.py     # 协议 v3 二进制帧编解码（骨架）
 │   │   ├── game.py / ai.py  # 五子棋棋盘算法与启发式 AI
 │   │   └── protocol.py      # 协议 v2 常量、错误码、校验
 │   ├── tests/               # pytest（规则 + 房间 + WebSocket 集成）
@@ -87,13 +90,15 @@ games/
 │       │   └── ...
 │       ├── hooks/useGameSocket.ts# WS 状态机 + 动作
 │       ├── lib/router.ts         # /{game}、/{game}/room/{code} 路径路由
+│       ├── lib/realtime/codec.ts # 协议 v3 二进制帧编解码 + vitest
 │       ├── lib/protocol.ts       # 运行时协议解析
 │       └── types.ts              # 多游戏类型
 ├── deploy/nginx.container.conf
 ├── Dockerfile / Dockerfile.web / docker-compose.yml
 ├── PROTOCOL.md                  # 协议 v2（含两种 game 状态）
-├── docs/REALTIME.md             # 实时游戏 tick / 二进制 WS 设计（v3 草案）
-└── scripts/                     # start/dev/e2e/ui_smoke
+├── shared/realtime-v3.fixtures.json # 前后端共享二进制黄金样例
+├── docs/REALTIME.md             # 实时游戏 tick / 二进制 WS 设计与落地状态
+└── scripts/                     # start/dev/e2e/ui_smoke + gen_realtime_fixtures
 ```
 
 ## 快速开始（开发模式）
@@ -106,6 +111,7 @@ games/
 cd web
 npm install
 npm run dev                   # http://127.0.0.1:5173
+npm test                      # v3 二进制编解码单测（与后端共享 fixture）
 ```
 
 Vite 已把 `/api` 与 `/ws` 代理到 `http://127.0.0.1:8765`；也可以用 `DEV_BACKEND=http://host:port npm run dev` 指定其他后端。

@@ -1,0 +1,94 @@
+{
+  "protocolVersion": 3,
+  "note": "协议 v3 二进制帧黄金样例；由 scripts/gen_realtime_fixtures.py 生成，请勿手改 hex。",
+  "cases": [
+    {
+      "name": "input-basic",
+      "type": "input",
+      "hex": "01002a00e8030000150040",
+      "decoded": {
+        "seq": 42,
+        "tick": 1000,
+        "inputFlags": 21,
+        "aim": 16384
+      }
+    },
+    {
+      "name": "snapshot-keyframe",
+      "type": "keyframe",
+      "hex": "02010700780000000200010039307be51e0000000040640102009cffc8000000f1ff00805005",
+      "decoded": {
+        "seq": 7,
+        "tick": 120,
+        "entities": [
+          {
+            "id": 1,
+            "x": 12345,
+            "y": -6789,
+            "vx": 30,
+            "vy": 0,
+            "angle": 16384,
+            "hp": 100,
+            "flags": 1
+          },
+          {
+            "id": 2,
+            "x": -100,
+            "y": 200,
+            "vx": 0,
+            "vy": -15,
+            "angle": 32768,
+            "hp": 80,
+            "flags": 5
+          }
+        ]
+      }
+    },
+    {
+      "name": "snapshot-delta",
+      "type": "delta",
+      "hex": "020209008200000007007800000003000100037030d4e5020010e8800300602a0a",
+      "decoded": {
+        "seq": 9,
+        "tick": 130,
+        "ackSeq": 7,
+        "baselineTick": 120,
+        "entities": [
+          {
+            "id": 1,
+            "mask": 3,
+            "x": 12400,
+            "y": -6700,
+            "vx": null,
+            "vy": null,
+            "angle": null,
+            "hp": null,
+            "flags": null
+          },
+          {
+            "id": 2,
+            "mask": 16,
+            "x": null,
+            "y": null,
+            "vx": null,
+            "vy": null,
+            "angle": 33000,
+            "hp": null,
+            "flags": null
+          },
+          {
+            "id": 3,
+            "mask": 96,
+            "x": null,
+            "y": null,
+            "vx": null,
+            "vy": null,
+            "angle": null,
+            "hp": 42,
+            "flags": 10
+          }
+        ]
+      }
+    }
+  ]
+}

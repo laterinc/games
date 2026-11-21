@@ -312,4 +312,10 @@ v2 的事件驱动 + JSON 模型适合回合制，不适合坦克大战这类 10
 
 **[docs/REALTIME.md](docs/REALTIME.md)**
 
-在 v3 落地前，`protocolVersion` 保持 `2`，现有客户端/服务端不受影响。
+编解码骨架已经落地（尚未接入 WS/房间 tick）：
+
+- 后端：`server/app/realtime/codec.py`，测试 `server/tests/test_realtime_codec.py`
+- 前端：`web/src/lib/realtime/codec.ts`，测试 `web/src/lib/realtime/codec.test.ts`
+- 共享黄金样例：`shared/realtime-v3.fixtures.json`
+
+在 v3 接入 WS 前，`protocolVersion` 保持 `2`，现有客户端/服务端不受影响。

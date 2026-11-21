@@ -1,7 +1,7 @@
 # 实时游戏与二进制 WebSocket 传输（v3 草案）
 
-> 状态：**设计稿，尚未实现**。当前线上协议仍是 v2（WebSocket + JSON 文本帧），
-> 本文用于在接入坦克大战这类实时游戏前，把传输层边界定清楚。
+> 状态：**编解码骨架已落地，房间 tick / 坦克玩法未接入**。当前线上协议仍是 v2（WebSocket + JSON 文本帧）。
+> 前后端 codec 与共享 golden fixture 已存在；本文其余部分是接入实时游戏时的实现约束。
 
 ## 1. 结论先行
 
@@ -99,7 +99,7 @@ header(8) + u16 entityCount + entityCount * 14B
 增量帧（只发变化实体）：
 
 ```text
-header(8) + u16 ackSeq + u16 baselineTick + u16 changedCount
+header(8) + u16 ackSeq + u32 baselineTick + u16 changedCount
          + changedCount * (u16 id + u8 mask + 变化字段...)
 ```
 
@@ -168,8 +168,8 @@ WebSocket 是**可靠、有序**的字节流：丢包会阻塞后续帧（队头
 - v2 完全不动：现有五子棋/象棋客户端继续 JSON。
 - v3 新增能力协商：`welcome` 增加 `binary: true`、`tickRate`、`encoding: "json+binary"`。
 - 只有 `mode = realtime` 的房间使用二进制帧；控制面仍走 JSON。
-- 客户端与服务端共用一份 golden fixture（固定字节数组）做单元测试，防止两边编码漂移。
-- 上线顺序：能力协商 → 编解码与测试 → 单个坦克原型房 → AOI/增量 → 压测与限流。
+- 客户端与服务端共用 `shared/realtime-v3.fixtures.json` 黄金样例做单元测试，防止两边编码漂移。
+- 上线顺序：~~编解码与测试~~（已完成骨架）→ 能力协商 → 单个坦克原型房 → AOI/增量 → 压测与限流。
 
 ## 9. 安全与可观测性
 
@@ -183,3 +183,25 @@ WebSocket 是**可靠、有序**的字节流：丢包会阻塞后续帧（队头
 - 前端游戏目录：`web/src/games/`，实时游戏加入时在 `types.ts` 增加 `GameType` 与状态类型，并新增 `games/<slug>/`。
 - 传输层：`web/src/lib/socket.ts` 目前只处理文本帧；v3 时增加 `binaryType = 'arraybuffer'` 与二进制分支。
 - 服务端：`server/app/games/` 增加 `realtime` 规则插件，`rooms.py` 增加 tick 任务与快照广播；现有回合制房间路径不变。
+
+## 11. 当前落地状态（2026-11）
+
+已经完成、可直接复用的部分：
+
+| 位置 | 内容 |
+| --- | --- |
+| `server/app/realtime/codec.py` | 输入帧 / 关键帧 / 增量帧编解码、范围校验、定点与角度辅助函数 |
+| `web/src/lib/realtime/codec.ts` | 与后端逐字节一致的 TypeScript 编解码 |
+| `shared/realtime-v3.fixtures.json` | 共享黄金样例（hex + 期望解码结果） |
+| `scripts/gen_realtime_fixtures.py` | 从 Python codec 重新生成 fixture |
+| `server/tests/test_realtime_codec.py` | pytest：golden、截断、未知 mask、范围校验 |
+| `web/src/lib/realtime/codec.test.ts` | vitest：同一份 golden + 防御性测试 |
+
+尚未完成：`welcome` 能力协商、二进制帧接入 `socket.ts` / `ws.py`、实时房间 tick 循环、坦克玩法本身。
+
+验证命令：
+
+```bash
+server/.venv/bin/python -m pytest server/tests/test_realtime_codec.py -q
+cd web && npm test
+```
