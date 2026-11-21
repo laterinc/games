@@ -5,16 +5,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# 环境变量：先加载仓库根 .env，再加载 server/.env（后者优先，便于只配后端）
-for env_file in .env server/.env; do
-  if [ -f "$env_file" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    . "$env_file"
-    set +a
-  fi
-done
-
 # 仓库可能被整体移动：shebang/sys.prefix 与当前路径不符或不可执行时自动重建
 if ! [ -x server/.venv/bin/uvicorn ] || \
    ! server/.venv/bin/python -c "import sys; raise SystemExit(0 if sys.prefix == '$ROOT/server/.venv' else 1)" >/dev/null 2>&1; then
@@ -30,11 +20,10 @@ if [ ! -d web/node_modules ]; then
   npm --prefix web install
 fi
 
-PORT="${PORT:-8765}"
 echo "==> 后端 http://127.0.0.1:${PORT}"
 (
   cd server
-  exec .venv/bin/uvicorn app.main:app --host "${HOST:-127.0.0.1}" --port "$PORT" --reload
+  exec .venv/bin/python run.py --reload
 ) &
 BACK_PID=$!
 

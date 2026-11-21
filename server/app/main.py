@@ -131,15 +131,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-
-
-if __name__ == "__main__":  # pragma: no cover - 便捷本地启动
-    import uvicorn
-
-    _settings = Settings.from_env()
-    uvicorn.run(
-        "app.main:app",
-        host=_settings.host,
-        port=_settings.port,
-        reload=False,
-    )

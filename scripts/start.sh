@@ -5,19 +5,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-# 环境变量：先加载仓库根 .env，再加载 server/.env（后者优先，便于只配后端）
-for env_file in .env server/.env; do
-  if [ -f "$env_file" ]; then
-    set -a
-    # shellcheck disable=SC1091
-    . "$env_file"
-    set +a
-  fi
-done
-
-HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8765}"
-
 # 仓库可能被整体移动：shebang/sys.prefix 与当前路径不符或不可执行时自动重建
 if ! [ -x server/.venv/bin/uvicorn ] || \
    ! server/.venv/bin/python -c "import sys; raise SystemExit(0 if sys.prefix == '$ROOT/server/.venv' else 1)" >/dev/null 2>&1; then
@@ -28,6 +15,6 @@ if ! [ -x server/.venv/bin/uvicorn ] || \
   server/.venv/bin/pip install -q -r server/requirements.txt
 fi
 
-echo "==> 启动五子棋后端（API/WS）：http://${HOST}:${PORT}"
+echo "==> 启动五子棋后端（API/WS，端口读取 .env）"
 cd server
-exec .venv/bin/uvicorn app.main:app --host "$HOST" --port "$PORT" --workers 1
+exec .venv/bin/python run.py
