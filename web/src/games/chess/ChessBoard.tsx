@@ -162,11 +162,17 @@ function drawPiece(
     color === 'red' ? 'rgba(150, 38, 26, 0.45)' : 'rgba(34, 40, 46, 0.4)';
   ctx.stroke();
 
+  // 楷体的 CJK 字形在 textBaseline='middle' 下普遍偏低，不能直接画在圆心。
+  // 用实际墨迹框（ascent/descent）做垂直居中，兼容不同系统的楷体/宋体。
+  const fontSize = Math.round(CELL * 0.48);
   ctx.fillStyle = color === 'red' ? '#a5271a' : '#20262d';
-  ctx.font = `700 ${Math.round(CELL * 0.48)}px "STKaiti", "KaiTi", "Songti SC", serif`;
+  ctx.font = `700 ${fontSize}px "STKaiti", "KaiTi", "Songti SC", serif`;
   ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(glyph, cx, cy + 1.5);
+  ctx.textBaseline = 'alphabetic';
+  const metrics = ctx.measureText(glyph);
+  const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.88;
+  const descent = metrics.actualBoundingBoxDescent || fontSize * 0.12;
+  ctx.fillText(glyph, cx, cy + (ascent - descent) / 2);
 
   if (checked) {
     ctx.strokeStyle = 'rgba(255, 96, 78, 0.9)';
