@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { ChatMessage, Color, Room, ToastLevel } from '../types';
+import type { ChatMessage, Color, Point, Room, ToastLevel } from '../types';
 import type { SocketStatus } from '../lib/socket';
 import { COLOR_LABEL, ROOM_STATUS_LABEL } from '../lib/protocol';
 import { copyText } from '../lib/clipboard';
@@ -94,26 +94,28 @@ export function RoomView({
   const canUndo =
     !spectator && connected && room.status === 'playing' && game.moves.length > 0 && undoRequest === null;
 
-  const [pending, setPending] = useState(false);
+  const [pendingMove, setPendingMove] = useState<Point | null>(null);
+  const pending = pendingMove !== null;
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [resignOpen, setResignOpen] = useState(false);
 
-  // 服务端广播的棋谱一旦增长，说明落子已被确认。
+  // 服务端广播的棋谱一旦变化，说明落子已被确认（或已被拒绝/撤销）。
   useEffect(() => {
-    setPending(false);
+    setPendingMove(null);
   }, [game.moves.length, room.status, room.id]);
 
   useEffect(() => {
-    if (!pending) return undefined;
-    const timer = window.setTimeout(() => setPending(false), 2500);
+    if (!pendingMove) return undefined;
+    const timer = window.setTimeout(() => setPendingMove(null), 2500);
     return () => window.clearTimeout(timer);
-  }, [pending]);
+  }, [pendingMove]);
 
   const interactive = myTurn && !pending;
 
   const handleMove = (row: number, col: number): void => {
     if (!interactive) return;
-    setPending(true);
+    // 乐观落子：先立刻显示半透明棋子，等服务端快照回来再替换为正式棋子
+    setPendingMove({ row, col });
     onMove(row, col);
   };
 
@@ -232,7 +234,13 @@ export function RoomView({
           ) : null}
 
           <div className="board-stage">
-            <Board game={game} myColor={myColor} interactive={interactive} onMove={handleMove} />
+            <Board
+              game={game}
+              myColor={myColor}
+              interactive={interactive}
+              pendingMove={pendingMove}
+              onMove={handleMove}
+            />
           </div>
 
           <div className="board-footer">

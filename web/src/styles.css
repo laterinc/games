@@ -2747,3 +2747,111 @@ button {
     padding-top: 20px;
   }
 }
+
+/* ---------- 落子手感：乐观落子 / 落下动画 / 涟漪 / 胜线绘制 ---------- */
+.board-surface {
+  transition: transform 0.12s ease;
+}
+
+.board-frame.is-interactive:active .board-surface {
+  transform: scale(0.997);
+}
+
+.stone-group,
+.stone-optimistic {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.stone-group.is-last {
+  animation: stone-drop 0.19s cubic-bezier(0.22, 0.9, 0.3, 1.18);
+}
+
+.stone-optimistic {
+  opacity: 0.62;
+  pointer-events: none;
+  animation: stone-drop 0.16s cubic-bezier(0.22, 0.9, 0.3, 1.18);
+}
+
+@keyframes stone-drop {
+  0% {
+    opacity: 0.25;
+    transform: scale(1.42) translateY(-3px);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(0.985) translateY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.stone-ripple {
+  fill: none;
+  stroke: rgba(255, 224, 164, 0.9);
+  stroke-width: 1.6;
+  pointer-events: none;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: stone-ripple 0.52s ease-out forwards;
+}
+
+@keyframes stone-ripple {
+  0% {
+    opacity: 0.75;
+    transform: scale(0.92);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.85);
+  }
+}
+
+.last-move-mark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: last-pop 0.28s ease-out;
+}
+
+@keyframes last-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.win-line {
+  stroke-dasharray: 520;
+  stroke-dashoffset: 520;
+  animation: win-draw 0.5s ease-out 0.05s forwards;
+}
+
+@keyframes win-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.ghost-stone {
+  transition: opacity 0.12s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stone-group.is-last,
+  .stone-optimistic,
+  .last-move-mark,
+  .win-line,
+  .stone-ripple {
+    animation: none;
+  }
+
+  .win-line {
+    stroke-dashoffset: 0;
+  }
+}

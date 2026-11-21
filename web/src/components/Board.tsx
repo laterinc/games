@@ -15,6 +15,8 @@ interface BoardProps {
   myColor: Color | null;
   /** 当前是否允许落子（轮到自己 + 连接正常 + 无待确认落子）。 */
   interactive: boolean;
+  /** 已点击、等待服务端确认的乐观落子（立刻显示半透明棋子）。 */
+  pendingMove?: Point | null;
   onMove: (row: number, col: number) => void;
 }
 
@@ -65,7 +67,30 @@ function stoneColorAt(board: number[][], row: number, col: number): Color | null
  * 15 路（按 game.boardSize 自适应）棋盘。
  * 支持鼠标/触摸落子、悬停虚影、最后一手标记、胜线高亮，以及方向键 + Enter 键盘落子。
  */
-export function Board({ game, myColor, interactive, onMove }: BoardProps) {
+function StoneShape({ color, cx, cy }: { color: Color; cx: number; cy: number }) {
+  return (
+    <>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={STONE_RADIUS}
+        fill={`url(#stone-${color})`}
+        stroke={color === 'white' ? 'rgba(120, 132, 145, 0.55)' : 'rgba(0, 0, 0, 0.6)'}
+        strokeWidth={color === 'white' ? 0.8 : 0.6}
+      />
+      <ellipse
+        cx={cx - 5.4}
+        cy={cy - 6.2}
+        rx={6.2}
+        ry={3.4}
+        fill={color === 'white' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.34)'}
+        transform={`rotate(-26 ${cx - 5.4} ${cy - 6.2})`}
+      />
+    </>
+  );
+}
+
+export function Board({ game, myColor, interactive, pendingMove, onMove }: BoardProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const size = clampBoardSize(game.boardSize);
@@ -303,35 +328,42 @@ export function Board({ game, myColor, interactive, onMove }: BoardProps) {
             />
           ) : null}
 
-          {/* 棋子 */}
+          {/* 棋子（最后一手带落下动画） */}
           {Array.from({ length: size }, (_, row) =>
             Array.from({ length: size }, (_, col) => {
               const color = stoneColorAt(board, row, col);
               if (!color) return null;
               const cx = PAD + col * CELL;
               const cy = PAD + row * CELL;
+              const isLast = game.lastMove?.row === row && game.lastMove?.col === col;
               return (
-                <g key={`stone-${row}-${col}`} filter="url(#stone-shadow)">
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={STONE_RADIUS}
-                    fill={`url(#stone-${color})`}
-                    stroke={color === 'white' ? 'rgba(120, 132, 145, 0.55)' : 'rgba(0, 0, 0, 0.6)'}
-                    strokeWidth={color === 'white' ? 0.8 : 0.6}
-                  />
-                  <ellipse
-                    cx={cx - 5.4}
-                    cy={cy - 6.2}
-                    rx={6.2}
-                    ry={3.4}
-                    fill={color === 'white' ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.34)'}
-                    transform={`rotate(-26 ${cx - 5.4} ${cy - 6.2})`}
-                  />
+                <g
+                  key={`stone-${row}-${col}`}
+                  className={`stone-group${isLast ? ' is-last' : ''}`}
+                  filter="url(#stone-shadow)"
+                >
+                  <StoneShape color={color} cx={cx} cy={cy} />
                 </g>
               );
             }),
           )}
+
+          {/* 乐观落子：点击后立即出现半透明棋子，不等服务端广播 */}
+          {pendingMove &&
+          myColor &&
+          stoneColorAt(board, pendingMove.row, pendingMove.col) === null ? (
+            <g
+              className="stone-optimistic"
+              filter="url(#stone-shadow)"
+              aria-hidden="true"
+            >
+              <StoneShape
+                color={myColor}
+                cx={PAD + pendingMove.col * CELL}
+                cy={PAD + pendingMove.row * CELL}
+              />
+            </g>
+          ) : null}
 
           {/* 最后一手标记 */}
           {game.lastMove &&
@@ -340,12 +372,20 @@ export function Board({ game, myColor, interactive, onMove }: BoardProps) {
           game.lastMove.col >= 0 &&
           game.lastMove.col < size &&
           stoneColorAt(board, game.lastMove.row, game.lastMove.col) ? (
-            <circle
-              className="last-move-mark"
-              cx={PAD + game.lastMove.col * CELL}
-              cy={PAD + game.lastMove.row * CELL}
-              r={5}
-            />
+            <g key={`last-${game.lastMove.row}-${game.lastMove.col}`}>
+              <circle
+                className="stone-ripple"
+                cx={PAD + game.lastMove.col * CELL}
+                cy={PAD + game.lastMove.row * CELL}
+                r={STONE_RADIUS}
+              />
+              <circle
+                className="last-move-mark"
+                cx={PAD + game.lastMove.col * CELL}
+                cy={PAD + game.lastMove.row * CELL}
+                r={5}
+              />
+            </g>
           ) : null}
 
           {/* 胜线棋子高亮环 */}
