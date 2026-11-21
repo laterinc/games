@@ -76,28 +76,33 @@ def main() -> None:
 
         print(f"== UI 冒烟 {base}")
         a.goto(base, wait_until="networkidle")
+        expect(a.locator(".home")).to_be_visible()
+        expect(a.locator(".game-card.is-planned")).to_contain_text("坦克大战")
+        print("  ✓ 游戏中心首页加载（含开发中游戏卡片）")
+        a.get_by_role("button", name="进入五子棋").click()
+        a.wait_for_url(lambda url: url.rstrip("/").endswith("/gomoku"), timeout=10_000)
         a.locator('input[autocomplete="nickname"]').fill("小明")
         expect(a.locator(".conn-pill")).to_contain_text("已连接", timeout=10_000)
-        print("  ✓ 大厅加载、WebSocket 已连接")
+        print("  ✓ 从首页进入 /gomoku，WebSocket 已连接")
         a.screenshot(path=str(SHOT_DIR / "lobby.png"), full_page=True)
 
         a.get_by_role("button", name="创建房间").click()
         a.locator(".field").filter(has_text="房间名（可空）").locator("input").fill("UI 冒烟房")
         a.get_by_role("button", name="创建并进入").click()
-        a.wait_for_url(lambda url: "room=" in url, timeout=10_000)
+        a.wait_for_url(lambda url: "/room/" in url, timeout=10_000)
         room_id = a.locator(".room-code-chip strong").inner_text().strip()
         assert len(room_id) == 6, f"房间码异常：{room_id!r}"
         wait_room(a, room_id)
         print(f"  ✓ 创建房间 {room_id} 并进入对局页")
 
         # 好友通过邀请链接加入
-        b.goto(f"{base}/?room={room_id}", wait_until="networkidle")
+        b.goto(f"{base}/gomoku/room/{room_id}", wait_until="networkidle")
         b.locator('input[autocomplete="nickname"]').fill("小红")
         expect(b.locator('input[aria-label="6 位房间码"]')).to_have_value(room_id, timeout=5_000)
         b.locator("form.join-form").get_by_role("button", name="加入").click()
         wait_room(b, room_id)
         expect(b.locator(".players-card")).to_contain_text("小明", timeout=10_000)
-        print("  ✓ 通过 ?room= 邀请链接加入，双方玩家卡正确")
+        print(f"  ✓ 通过 /gomoku/room/{room_id} 邀请链接加入，双方玩家卡正确")
 
         a.get_by_role("button", name="准备", exact=True).click()
         b.get_by_role("button", name="准备", exact=True).click()
@@ -146,10 +151,10 @@ def main() -> None:
         a.screenshot(path=str(SHOT_DIR / "midgame-desktop.png"), full_page=True)
         print("  ✓ 对局页渲染（截图见 /tmp/games-ui）")
 
-        # 第三人观战：通过 ?room= 进入，点「观战」，只读看棋
+        # 第三人观战：通过 /gomoku/room/{code} 进入，点「观战」，只读看棋
         spectator_ctx = browser.new_context()
         spectator = spectator_ctx.new_page()
-        spectator.goto(f"{base}/?room={room_id}", wait_until="networkidle")
+        spectator.goto(f"{base}/gomoku/room/{room_id}", wait_until="networkidle")
         spectator.locator('input[autocomplete="nickname"]').fill("观众")
         expect(spectator.locator('input[aria-label="6 位房间码"]')).to_have_value(
             room_id, timeout=5_000
@@ -204,8 +209,9 @@ def main() -> None:
         c.on("console", lambda msg: errors.append(f"[C] console.{msg.type}: {msg.text}") if msg.type == "error" else None)
         c.on("pageerror", lambda exc: errors.append(f"[C] pageerror: {exc}"))
         c.goto(base, wait_until="networkidle")
+        c.get_by_role("button", name="进入中国象棋").click()
+        c.wait_for_url(lambda url: url.rstrip("/").endswith("/chess"), timeout=10_000)
         c.locator('input[autocomplete="nickname"]').fill("象棋手")
-        c.get_by_role("tab", name="中国象棋").click()
         expect(c.locator(".hero-title")).to_contain_text("中国象棋")
         c.screenshot(path=str(SHOT_DIR / "chess-lobby.png"), full_page=True)
         c.get_by_role("button", name="人机对战").click()
@@ -216,7 +222,7 @@ def main() -> None:
         expect(c.locator(".turn-meta")).to_contain_text("手数 2", timeout=10_000)
         expect(c.locator(".board-footer")).to_contain_text("红棋先行")
         c.screenshot(path=str(SHOT_DIR / "chess-room.png"), full_page=True)
-        print("  ✓ 中国象棋：游戏切换、人机开局、红兵前进与电脑应手")
+        print("  ✓ 首页进入中国象棋：人机开局、红兵前进与电脑应手")
 
         if errors:
             print("\n浏览器控制台错误：")

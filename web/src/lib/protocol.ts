@@ -469,11 +469,6 @@ export const COLOR_LABEL: Record<Color, string> = {
   red: '红棋',
 };
 
-export const GAME_LABEL: Record<GameType, string> = {
-  gomoku: '五子棋',
-  chess: '中国象棋',
-};
-
 export const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
   waiting: '等待中',
   playing: '对局中',

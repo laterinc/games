@@ -9,12 +9,11 @@ import type {
 } from '../types';
 import {
   COLOR_LABEL,
-  CREATE_COLOR_LABEL,
-  GAME_LABEL,
   MAX_NICKNAME_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   ROOM_STATUS_LABEL,
 } from '../lib/protocol';
+import { GAME_LABEL, GAME_LIST, GAMES } from '../games/registry';
 import { Modal } from './Modal';
 
 interface LobbyProps {
@@ -23,7 +22,7 @@ interface LobbyProps {
   rooms: RoomSummary[];
   connected: boolean;
   gameType: GameType;
-  onGameTypeChange: (gameType: GameType) => void;
+  onSelectGame: (gameType: GameType) => void;
   initialRoomCode: string;
   onQuickMatch: () => void;
   onCreateRoom: (options: {
@@ -49,32 +48,6 @@ const END_REASON_LABEL: Record<string, string> = {
   stalemate: '困毙',
 };
 
-const GAME_UI: Record<
-  GameType,
-  {
-    eyebrow: string;
-    description: string;
-    tags: string[];
-    note: string;
-    guide: [string, string, string];
-  }
-> = {
-  gomoku: {
-    eyebrow: '在线五子棋 · 无需注册',
-    description: '十五路棋盘，黑棋先行，先连成五子者胜。快速匹配陌生棋友，或邀请好友开一局。',
-    tags: ['15×15 标准棋盘', '服务端裁判', '断线可续 · 支持观战'],
-    note: '横 · 竖 · 斜，任意方向连成五子即胜',
-    guide: ['匹配或建房', '双方准备，黑棋先行', '横竖斜先连五子获胜'],
-  },
-  chess: {
-    eyebrow: '在线中国象棋 · 无需注册',
-    description: '九路十行，红棋先行，将死或困毙对手获胜。快速匹配棋友，或邀请好友杀一盘。',
-    tags: ['9×10 标准棋盘', '服务端裁判', '完整走子规则 · 支持观战'],
-    note: '车马炮卒，楚河汉界，将死或困毙即胜',
-    guide: ['匹配或建房', '双方准备，红棋先行', '将死或困毙对手获胜'],
-  },
-};
-
 function formatRecordTime(at: number): string {
   if (!Number.isFinite(at) || at <= 0) return '';
   const date = new Date(at);
@@ -85,21 +58,6 @@ function formatRecordTime(at: number): string {
     minute: '2-digit',
     hour12: false,
   });
-}
-
-function colorOptions(gameType: GameType): Array<{ value: CreateColor; label: string }> {
-  if (gameType === 'chess') {
-    return [
-      { value: 'red', label: CREATE_COLOR_LABEL.red },
-      { value: 'black', label: CREATE_COLOR_LABEL.black },
-      { value: 'random', label: CREATE_COLOR_LABEL.random },
-    ];
-  }
-  return [
-    { value: 'black', label: CREATE_COLOR_LABEL.black },
-    { value: 'white', label: CREATE_COLOR_LABEL.white },
-    { value: 'random', label: CREATE_COLOR_LABEL.random },
-  ];
 }
 
 function normalizeRoomCode(value: string): string {
@@ -171,7 +129,7 @@ export function Lobby({
   rooms,
   connected,
   gameType,
-  onGameTypeChange,
+  onSelectGame,
   initialRoomCode,
   onQuickMatch,
   onCreateRoom,
@@ -212,8 +170,8 @@ export function Lobby({
   const losses = records.filter((record) => record.result === 'loss').length;
   const draws = records.filter((record) => record.result === 'draw').length;
   const visibleRooms = rooms.filter((room) => room.gameType === gameType);
-  const meta = GAME_UI[gameType];
-  const options = colorOptions(gameType);
+  const meta = GAMES[gameType];
+  const options = meta.colorOptions;
 
   const handleQuickMatch = (): void => {
     if (!canStart) return;
@@ -262,21 +220,21 @@ export function Lobby({
           <p className="hero-sub">{meta.description}</p>
 
           <div className="game-switch" role="tablist" aria-label="选择游戏">
-            {(['gomoku', 'chess'] as GameType[]).map((key) => (
+            {GAME_LIST.map((game) => (
               <button
-                key={key}
+                key={game.type}
                 type="button"
                 role="tab"
-                aria-selected={gameType === key}
-                className={`game-switch-item${gameType === key ? ' is-active' : ''}`}
-                onClick={() => onGameTypeChange(key)}
+                aria-selected={gameType === game.type}
+                className={`game-switch-item${gameType === game.type ? ' is-active' : ''}`}
+                onClick={() => onSelectGame(game.type)}
               >
-                <span className={`game-switch-icon game-${key}`} aria-hidden="true">
-                  {key === 'gomoku' ? '五' : '象'}
+                <span className={`game-switch-icon game-${game.type}`} aria-hidden="true">
+                  {game.icon}
                 </span>
                 <span className="game-switch-copy">
-                  <strong>{GAME_LABEL[key]}</strong>
-                  <small>{key === 'gomoku' ? '五连获胜' : '将死获胜'}</small>
+                  <strong>{game.label}</strong>
+                  <small>{game.short}</small>
                 </span>
               </button>
             ))}

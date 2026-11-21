@@ -3,7 +3,7 @@
 一个可外网连接的**多游戏联机大厅**：目前包含 **五子棋** 与 **中国象棋**，前端 React 18 + TypeScript + Vite，后端 Python 3.11 + FastAPI + WebSocket。服务端是唯一裁判，前端只做展示与乐观交互。
 
 > 项目原名 `gomoku`，现更名为 **games**；五子棋只是其中一个游戏，新增小游戏只需实现一份 `GameRules` 规则插件。
-> 生产入口示例：`https://cloudflare.org.cn/games/`，WebSocket：`wss://cloudflare.org.cn/games/ws`。
+> 线上游戏中心：`https://games.later.design/`；后端：`https://cloudflare.org.cn/games`，WebSocket：`wss://cloudflare.org.cn/games/ws`。
 
 ![大厅（中国象棋）](docs/screenshots/lobby.png)
 
@@ -11,7 +11,8 @@
 
 | 模块 | 能力 |
 | --- | --- |
-| 游戏 | 五子棋（15×15，五连获胜）；中国象棋（9×10，将死/困毙获胜） |
+| 首页 | 游戏中心：按「棋类对战 / 实时对战」分组展示全部游戏，含开发中游戏卡片 |
+| 游戏 | 五子棋（15×15，五连获胜）；中国象棋（9×10，将死/困毙获胜）；坦克大战（规划中，见 [实时传输设计](docs/REALTIME.md)） |
 | 联机 | 快速匹配、公开/私密房间、房间码与邀请链接、双方准备开局、观战（最多 20 人） |
 | 身份 | HttpOnly `games_session` Cookie（`playerId.token`，30 天）+ localStorage token；刷新/重开浏览器/换标签页可恢复座位 |
 | 对局 | 服务端走子校验、悔棋请求/回应、认输、再来一局（自动交换先后手）、断线宽限与弃权结算 |
@@ -20,6 +21,21 @@
 | 音效 | WebAudio 实时合成（落子/胜负/和棋），可静音并记住设置 |
 | 战绩 | 每位玩家保留最近 10 局，标记游戏、模式、结果、手数；仅保存在服务端内存 |
 | 渲染 | 棋盘全部 **Canvas 2D**（离屏静态层 + 按需重绘 + DPR 自适应），无 SVG/DOM 棋子 |
+
+### 前端路由
+
+每个游戏有独立 URI 与源码目录，新增游戏不需要改 App/Lobby：
+
+| URL | 页面 |
+| --- | --- |
+| `/` | 游戏中心首页（全部游戏、开发中游戏） |
+| `/gomoku`、`/chess` | 对应游戏的大厅 |
+| `/gomoku/room/ABC123` | 对局页 / 邀请链接（`{game}/room/{code}`） |
+| `/room/ABC123` | 未指定游戏的通用房间入口，加入后规范为 `/{game}/room/{code}` |
+
+旧版 `?game=chess`、`?room=ABC123` 链接仍可用，首帧会自动替换为上面的路径。
+
+新增游戏：在 `web/src/games/<slug>/` 放 `meta.ts` + 棋盘组件，登记到 `registry.ts`，首页和路由自动生效。只是规划中的游戏放 `planned.ts`，不会污染协议 `GameType`。
 
 ### 五子棋 / 中国象棋截图
 
@@ -54,18 +70,29 @@ games/
 │   └── run.py               # CLI 启动入口（--host/--port/--reload）
 ├── web/
 │   └── src/
+│       ├── games/
+│       │   ├── registry.ts       # 游戏注册表：新增游戏只改这里
+│       │   ├── types.ts          # GameDefinition / GameListing
+│       │   ├── planned.ts        # 开发中游戏（坦克大战）
+│       │   ├── gomoku/
+│       │   │   ├── meta.ts       # /gomoku 的路由与文案
+│       │   │   └── Board.tsx     # 五子棋 Canvas 棋盘
+│       │   └── chess/
+│       │       ├── meta.ts       # /chess 的路由与文案
+│       │       └── ChessBoard.tsx
 │       ├── components/
-│       │   ├── Lobby.tsx         # 游戏切换 + 大厅
+│       │   ├── Home.tsx          # 游戏中心首页
+│       │   ├── Lobby.tsx         # 大厅（游戏切换跳 URI）
 │       │   ├── RoomView.tsx      # 通用对局页
-│       │   ├── Board.tsx         # 五子棋 Canvas 棋盘
-│       │   ├── ChessBoard.tsx    # 中国象棋 Canvas 棋盘
 │       │   └── ...
 │       ├── hooks/useGameSocket.ts# WS 状态机 + 动作
+│       ├── lib/router.ts         # /{game}、/{game}/room/{code} 路径路由
 │       ├── lib/protocol.ts       # 运行时协议解析
 │       └── types.ts              # 多游戏类型
 ├── deploy/nginx.container.conf
 ├── Dockerfile / Dockerfile.web / docker-compose.yml
 ├── PROTOCOL.md                  # 协议 v2（含两种 game 状态）
+├── docs/REALTIME.md             # 实时游戏 tick / 二进制 WS 设计（v3 草案）
 └── scripts/                     # start/dev/e2e/ui_smoke
 ```
 
@@ -177,17 +204,22 @@ docker compose up -d --build
 
 ### Cloudflare Workers（前端静态资源）
 
-`web/wrangler.jsonc` 已配置 `assets.directory = "./dist"`，生产构建使用 `VITE_BASE_PATH=/games/` 与 `VITE_WS_URL=wss://cloudflare.org.cn/games/ws`。示例：
+线上 Worker `games` 绑定自定义域 `https://games.later.design/`，部署在域名**根路径**，因此构建时 `VITE_BASE_PATH=/`。
+
+`web/wrangler.jsonc` 已配置 `assets.directory = "./dist"` 与 SPA 回退（`/{game}/room/{code}` 刷新时回落到 `index.html`）。部署务必使用构建产物：
 
 ```bash
 cd web
-npm run build
-npx wrangler deploy
+npm run deploy        # = npm run build && wrangler deploy，上传的是 dist/
 ```
+
+> ⚠️ 不要直接把 `web/` 源码目录当静态资源上传：HTML 里的 `/src/main.tsx` 没有 MIME，
+> 浏览器会报 “Expected a JavaScript-or-Wasm module script…”，页面纯黑。
+> 若前端改部署到子路径（如 `https://cloudflare.org.cn/games/`），构建时设 `VITE_BASE_PATH=/games/` 并重新构建。
 
 ### 前后端分域部署
 
-同域部署无需 CORS；分域时配置后端 `CORS_ORIGINS=https://your-frontend.example.com`，前端通过 `VITE_API_BASE` / `VITE_WS_URL` 指到后端域名。`games_session` Cookie 的 `SameSite=Lax`，跨站场景需要放到同一站点下或改用 token 认证。
+同域部署无需 CORS；分域时配置后端 `CORS_ORIGINS=https://your-frontend.example.com`（当前前端是 `https://games.later.design`，后端是 `https://cloudflare.org.cn/games`，需要把前者加入 CORS），前端通过 `VITE_API_BASE` / `VITE_WS_URL` 指到后端域名。`games_session` Cookie 的 `SameSite=Lax`，跨站场景需要放到同一站点下或改用 token 认证。
 
 ## 环境变量
 

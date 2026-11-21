@@ -10,7 +10,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import type { ChessColor, ChessGame, ChessLegalMove, Point } from '../types';
+import type { ChessColor, ChessGame, ChessLegalMove, Point } from '../../types';
 
 interface ChessBoardProps {
   game: ChessGame;

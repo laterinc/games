@@ -9,7 +9,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import type { GomokuColor, GomokuGame, Point } from '../types';
+import type { GomokuColor, GomokuGame, Point } from '../../types';
 
 interface BoardProps {
   game: GomokuGame;

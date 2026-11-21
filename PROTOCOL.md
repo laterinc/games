@@ -3,7 +3,7 @@
 面向 **多游戏联机大厅** 的 WebSocket 协议。房间生命周期与游戏无关；棋盘、走法、终局状态由 `gameType` 区分。
 
 - 传输：WebSocket（`/ws`，生产通常在 `/games/ws`）
-- 编码：JSON 文本帧，UTF-8
+- 编码：JSON 文本帧，UTF-8（实时游戏预留二进制帧，见 §9 / [docs/REALTIME.md](docs/REALTIME.md)）
 - 版本：`protocolVersion = 2`（v1 只支持五子棋，且无 `gameType` 字段）
 - 服务端权威：所有走法、悔棋、胜负由服务端规则引擎裁决
 
@@ -291,7 +291,7 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
 1. 在 `server/app/games/` 实现 `GameRules`：`key`、`name`、`colors`、`create_colors`、`new_game`、`apply_move`、`ai_move`、`undo`、`legal_moves`（可选 `finish` / `ai_delay_seconds`）。
 2. 在 `server/app/games/__init__.py::build_registry` 注册。
 3. `state` 必须是可直接 JSON 序列化的字典，并包含公共字段：`currentTurn`、`moves`、`lastMove`、`winner`、`endedReason`、`startedAt`、`endedAt`。
-4. 前端在 `types.ts` 增加游戏状态类型，`RoomView` 按 `gameType` 渲染棋盘，Lobby 增加游戏切换项。
+4. 前端在 `types.ts` 增加游戏状态类型，在 `web/src/games/<slug>/` 提供 `meta.ts` 与棋盘组件，并登记到 `web/src/games/registry.ts`；路由、首页卡片、大厅切换会自动生效。
 5. 房间生命周期、悔棋、认输、观战、聊天、战绩、断线重连无需改动。
 
 ## 8. 兼容性
@@ -299,3 +299,17 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
 - v1 客户端不带 `gameType`，服务端按 `gomoku` 处理并返回 `gameType:"gomoku"`；但 v1 客户端不认识 `gameType`/象棋字段。
 - v2 服务端的 `protocolVersion=2`，房间快照新增 `gameType`，战绩新增 `gameType`。
 - 五子棋 `game` 字段与 v1 兼容。
+
+## 9. 实时游戏与二进制帧（v3 草案，未实现）
+
+v2 的事件驱动 + JSON 模型适合回合制，不适合坦克大战这类 10–20Hz 状态同步。v3 的方向是**混合通道**：
+
+- 身份、房间、大厅、聊天、回合制走子：继续 JSON 文本帧。
+- 实时游戏输入与快照：二进制帧，与文本帧共用同一条 WebSocket。
+- 服务端按固定 tick 推进实时房间，客户端发送输入意图，快照支持关键帧 + 增量 + 兴趣裁剪。
+
+二进制帧的字段布局、带宽测算、tick 模型、断线/背压处理和迁移步骤，统一维护在：
+
+**[docs/REALTIME.md](docs/REALTIME.md)**
+
+在 v3 落地前，`protocolVersion` 保持 `2`，现有客户端/服务端不受影响。

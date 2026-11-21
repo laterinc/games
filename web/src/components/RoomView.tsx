@@ -12,11 +12,13 @@ import type {
   ToastLevel,
 } from '../types';
 import type { SocketStatus } from '../lib/socket';
-import { COLOR_LABEL, GAME_LABEL, ROOM_STATUS_LABEL } from '../lib/protocol';
+import { COLOR_LABEL, ROOM_STATUS_LABEL } from '../lib/protocol';
+import { GAME_LABEL, GAMES } from '../games/registry';
+import { roomPath } from '../lib/router';
 import { isSoundEnabled, playResultSound, playStoneSound, setSoundEnabled, unlockAudio } from '../lib/sound';
 import { copyText } from '../lib/clipboard';
-import { Board } from './Board';
-import { ChessBoard } from './ChessBoard';
+import { ChessBoard } from '../games/chess/ChessBoard';
+import { Board } from '../games/gomoku/Board';
 import { ChatPanel } from './ChatPanel';
 import { Modal } from './Modal';
 import { PlayerCard } from './PlayerCard';
@@ -136,13 +138,14 @@ export function RoomView({
   const players = room.players;
   const me = playerId ? players.find((player) => player.id === playerId) ?? null : null;
   const opponent = playerId ? players.find((player) => player.id !== playerId) ?? null : null;
+  const gameDef = GAMES[room.gameType];
   const isChess = room.gameType === 'chess';
-  const seatColors: [Color, Color] = isChess ? ['red', 'black'] : ['black', 'white'];
+  const seatColors: [Color, Color] = gameDef.seatColors;
   const seatOne = players.find((player) => player.color === seatColors[0]) ?? null;
   const seatTwo = players.find((player) => player.color === seatColors[1]) ?? null;
   const myColor = me?.color ?? null;
   const game = room.game;
-  const moveVerb = isChess ? '走子' : '落子';
+  const moveVerb = gameDef.moveVerb;
   const myTurn =
     connected && room.status === 'playing' && myColor !== null && game.currentTurn === myColor;
   const isAiRoom = room.mode === 'ai';
@@ -232,7 +235,7 @@ export function RoomView({
     if (next) unlockAudio();
   };
 
-  const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${room.id}`;
+  const inviteUrl = `${window.location.origin}${roomPath(room.gameType, room.id)}`;
 
   const copyInvite = async (): Promise<void> => {
     const copied = await copyText(inviteUrl);
@@ -377,7 +380,7 @@ export function RoomView({
           </div>
 
           <div className="board-footer">
-            <span>{isChess ? '红棋先行 · 将死或困毙获胜' : '黑棋先行 · 五连获胜'}</span>
+            <span>{gameDef.boardFooter}</span>
             <span>{spectator ? '观战中 · 只读' : myColor ? `你执${COLOR_LABEL[myColor]}` : '未入座'}</span>
           </div>
         </div>
