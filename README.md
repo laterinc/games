@@ -4,8 +4,9 @@
 **后端 Python 3.11 + FastAPI + WebSocket**。服务端为唯一裁判，房间码邀请、
 快速匹配、准备开局、聊天、再来一局、断线重连全部可用。
 
-- 前端构建产物由后端同端口托管 —— 对外只需要暴露 **一个端口**，天然同源，
-  没有额外的 CORS / 跨域 WebSocket 问题。
+- 可选地由后端同端口托管前端构建产物（默认开启，`SERVE_STATIC=0` 可关闭）——
+  单端口部署时天然同源，没有 CORS / 跨域 WebSocket 问题；前端也可以交给 Nginx/CDN，
+  后端只做 API/WS。
 - 单进程内存房间，零数据库，零 Redis，部署成本极低。
 - 协议契约见 [`PROTOCOL.md`](./PROTOCOL.md)，前后端都按它实现。
 
@@ -193,6 +194,74 @@ WantedBy=multi-user.target
 sudo systemctl enable --now gomoku
 ```
 
+#### 方式三·B：Nginx 直接托管前端（后端只跑 API/WS）
+
+如果服务器上不想让 Python 进程读写前端文件（生产更常见），可以：
+
+1. 本机构建后上传，或在服务器上构建：
+
+```bash
+cd web && npm ci && npm run build     # 产物在 web/dist
+# 上传到服务器，例如 /www/wwwroot/gomoku/web/dist
+```
+
+2. 后端 `.env` 关闭静态托管，只跑 API/WS：
+
+```ini
+SERVE_STATIC=0
+HOST=127.0.0.1
+PORT=8000
+```
+
+3. Nginx 直接 serve `dist`，只把 `/api` 和 `/ws` 反代给后端：
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name gomoku.example.com;
+
+    root  /www/wwwroot/gomoku/web/dist;
+    index index.html;
+
+    # 前端 SPA：静态文件直出，找不到的路径回 index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache" always;
+    }
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # REST
+    location /api/ {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+    }
+
+    # WebSocket（必须带 Upgrade/Connection 头）
+    location /ws {
+        proxy_pass         http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host       $host;
+        proxy_read_timeout 3600s;
+    }
+}
+```
+
+同域名（前端与 `/api`、`/ws` 同域）时不需要任何 CORS 配置；
+若前端部署在**另一个域名**（Vercel/Netlify/CDN），后端需设置
+`CORS_ORIGINS=https://前端域名`、`ALLOWED_ORIGINS=https://前端域名`，
+并在前端构建时注入 `VITE_API_BASE` / `VITE_WS_URL`（见「前端环境变量」一节）。
+
+> 后端**不会构建前端**：`web/dist` 只是被当作静态目录读取。没有 dist 时日志会打一条
+> WARN 并禁用静态托管，API/WS 不受影响；不想看到这条 WARN 就设 `SERVE_STATIC=0`。
+
 > ⚠️ 房间状态在进程内存中，**只能跑 1 个 worker / 1 个实例**；
 > 不要开 `--workers 4`，也不要多副本无 sticky。需要水平扩展时把房间状态换成
 > Redis 再谈多实例。
@@ -221,6 +290,7 @@ docker run -d --name gomoku -p 8765:8765 gomoku
 | `HOST` | `0.0.0.0` | 监听地址，公网部署必须 `0.0.0.0` |
 | `PORT` | `8765` | 监听端口 |
 | `WEB_DIST` | `web/dist` | 前端静态产物目录；不存在时只提供 API/WS |
+| `SERVE_STATIC` | `1` | 是否由后端托管前端页面；`0` = 只提供 `/api` 与 `/ws`，前端交给 Nginx/CDN |
 | `BOARD_SIZE` | `15` | 棋盘路数（同时下发前端） |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | REST 允许跨域来源，逗号分隔；同源部署可不管 |
 | `ALLOWED_ORIGINS` | 空（放行） | WS 握手 Origin 白名单，公网建议设为你的域名 |
@@ -276,7 +346,7 @@ docker build -t gomoku \
 ## 测试
 
 ```bash
-# 1) 后端单元 + WebSocket 集成测试（50 个用例）
+# 1) 后端单元 + WebSocket 集成测试（52 个用例）
 cd server && .venv/bin/python -m pytest -q
 
 # 2) 端到端：真实启动服务后，用两个 WebSocket 客户端打完整对局（14 项检查）

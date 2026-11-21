@@ -24,16 +24,40 @@ def _is_ws_path(path: str) -> bool:
     return path == "ws" or path.startswith("ws/")
 
 
-def register_static(app: FastAPI, web_dist: Path) -> bool:
-    """注册静态托管与 SPA 兜底；dist 不存在时只禁用静态并打 WARN。
+def _register_disabled(app: FastAPI, reason: str) -> None:
+    """静态托管关闭时，为非 API 路径返回明确 JSON，避免误导成接口 404。"""
 
+    @app.get("/{full_path:path}", include_in_schema=False, response_model=None)
+    async def static_disabled(full_path: str) -> JSONResponse:
+        if _is_api_path(full_path):
+            return JSONResponse(status_code=404, content=_NOT_FOUND_BODY)
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": "STATIC_DISABLED",
+                "message": f"静态托管未启用（{reason}）：本服务只提供 /api 与 /ws，前端请由 Nginx/CDN 托管",
+            },
+        )
+
+
+def register_static(app: FastAPI, web_dist: Path, *, enabled: bool = True) -> bool:
+    """注册静态托管与 SPA 兜底；关闭或 dist 不存在时只禁用静态，不影响 API/WS。
+
+    ``SERVE_STATIC=0`` 用于「Nginx 直接托管前端、后端只做 API/WS」的部署方式。
     返回是否启用了静态托管。
     """
+    if not enabled:
+        logger.info("静态托管已按 SERVE_STATIC=0 关闭，仅提供 /api 与 /ws")
+        _register_disabled(app, "SERVE_STATIC=0")
+        return False
+
     dist = Path(web_dist)
     index_file = dist / "index.html"
     if not dist.is_dir() or not index_file.is_file():
         logger.warning(
-            "前端构建产物不存在（%s），静态托管已禁用；请先构建 web/ 后重启", dist
+            "前端构建产物不存在（%s），静态托管已禁用；"
+            "请构建 web/ 后重启，或设 SERVE_STATIC=0 交由 Nginx/CDN 托管前端",
+            dist,
         )
 
         @app.get("/{full_path:path}", include_in_schema=False, response_model=None)

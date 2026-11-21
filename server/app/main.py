@@ -129,7 +129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content={"error": "NOT_FOUND", "message": f"接口不存在：/api/{unknown_path}"},
         )
 
-    register_static(app, settings.web_dist)
+    register_static(app, settings.web_dist, enabled=settings.serve_static)
     return app
 
 

@@ -640,3 +640,33 @@ def test_websocket_origin_allowlist() -> None:
             assert exc.code == 1008
         else:  # pragma: no cover - 白名单失效时给出明确失败
             raise AssertionError("非白名单 Origin 不应完成 WebSocket 握手")
+
+
+def test_static_can_be_disabled_for_external_frontend(tmp_path: Path) -> None:
+    """SERVE_STATIC=0：后端只提供 API/WS，前端交给 Nginx/CDN。"""
+    app = create_app(Settings(web_dist=tmp_path / "dist", serve_static=False))
+    with TestClient(app) as client:
+        root = client.get("/")
+        assert root.status_code == 404
+        assert root.json()["error"] == "STATIC_DISABLED"
+        assert "SERVE_STATIC=0" in root.json()["message"]
+
+        spa = client.get("/some/spa/route")
+        assert spa.status_code == 404
+        assert spa.json()["error"] == "STATIC_DISABLED"
+
+        # API 与 WebSocket 不受影响
+        assert client.get("/api/health").status_code == 200
+        assert client.get("/api/config").status_code == 200
+        unknown = client.get("/api/nope")
+        assert unknown.status_code == 404
+        assert unknown.json()["error"] == "NOT_FOUND"
+
+
+def test_serve_static_env_switch(monkeypatch: Any) -> None:
+    monkeypatch.setenv("SERVE_STATIC", "0")
+    assert Settings.from_env().serve_static is False
+    monkeypatch.setenv("SERVE_STATIC", "1")
+    assert Settings.from_env().serve_static is True
+    monkeypatch.setenv("SERVE_STATIC", "false")
+    assert Settings.from_env().serve_static is False

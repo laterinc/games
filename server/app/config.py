@@ -38,6 +38,18 @@ def _env_float(name: str, default: float) -> float:
         raise ValueError(f"环境变量 {name} 必须是数字，当前为 {raw!r}") from exc
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in ("1", "true", "yes", "on"):
+        return True
+    if value in ("0", "false", "no", "off"):
+        return False
+    raise ValueError(f"环境变量 {name} 必须是布尔值（1/0/true/false），当前为 {raw!r}")
+
+
 def _env_csv(name: str) -> tuple[str, ...]:
     raw = os.getenv(name, "")
     return tuple(item.strip() for item in raw.split(",") if item.strip())
@@ -66,6 +78,8 @@ class Settings:
     room_ttl_seconds: float = 6 * 3600.0
     disconnect_grace_seconds: float = 60.0
     web_dist: Path = DEFAULT_WEB_DIST
+    #: 是否由本服务托管 web/dist（单端口部署）。纯 API/WS 部署可设 SERVE_STATIC=0。
+    serve_static: bool = True
     app_name: str = "五子棋"
     version: str = "1.0.0"
 
@@ -94,4 +108,5 @@ class Settings:
             room_ttl_seconds=_env_float("ROOM_TTL_SECONDS", 6 * 3600.0),
             disconnect_grace_seconds=_env_float("DISCONNECT_GRACE_SECONDS", 60.0),
             web_dist=_env_path("WEB_DIST", DEFAULT_WEB_DIST),
+            serve_static=_env_bool("SERVE_STATIC", True),
         )
