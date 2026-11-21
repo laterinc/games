@@ -127,7 +127,10 @@ function isValidRoomCode(code: string): boolean {
 export function useGameSocket(): UseGameSocketResult {
   const socketRef = useRef<GameSocket | null>(null);
   if (socketRef.current === null) {
-    socketRef.current = new GameSocket(import.meta.env.VITE_WS_URL);
+    socketRef.current = new GameSocket(
+      import.meta.env.VITE_WS_URL,
+      import.meta.env.VITE_API_BASE,
+    );
   }
 
   const [state, dispatch] = useReducer(reducer, initialState);

@@ -24,13 +24,32 @@ function wsProtocol(): string {
   return window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 }
 
-function resolveSocketUrl(configured?: string): string {
+/**
+ * 解析 WebSocket 地址。优先级：
+ * 1. VITE_WS_URL（wss://host/ws、/ws、host/ws 均可）；
+ * 2. VITE_API_BASE 为绝对地址时，自动推导 `ws(s)://<api-host>/ws`；
+ * 3. 同源 `ws(s)://<当前页面 host>/ws`（生产单端口 / 开发 Vite 代理的默认形态）。
+ */
+function resolveSocketUrl(configured?: string, apiBase?: string): string {
   const value = (configured ?? '').trim();
-  const fallback = `${wsProtocol()}//${window.location.host}/ws`;
-  if (!value) return fallback;
-  if (value.startsWith('ws://') || value.startsWith('wss://')) return value;
-  if (value.startsWith('/')) return `${wsProtocol()}//${window.location.host}${value}`;
-  return `${wsProtocol()}//${value}`;
+  if (value) {
+    if (value.startsWith('ws://') || value.startsWith('wss://')) return value;
+    if (value.startsWith('/')) return `${wsProtocol()}//${window.location.host}${value}`;
+    return `${wsProtocol()}//${value.replace(/^\/+/, '')}`;
+  }
+
+  const base = (apiBase ?? '').trim();
+  if (/^https?:\/\//i.test(base)) {
+    try {
+      const apiOrigin = new URL(base);
+      const protocol = apiOrigin.protocol === 'https:' ? 'wss:' : 'ws:';
+      return `${protocol}//${apiOrigin.host}/ws`;
+    } catch {
+      /* 非法 URL：退回同源 */
+    }
+  }
+
+  return `${wsProtocol()}//${window.location.host}/ws`;
 }
 
 export class GameSocket {
@@ -59,8 +78,8 @@ export class GameSocket {
     this.open();
   };
 
-  constructor(url?: string) {
-    this.url = resolveSocketUrl(url);
+  constructor(url?: string, apiBase?: string) {
+    this.url = resolveSocketUrl(url, apiBase);
   }
 
   /* ------------------------------ 公开 API ------------------------------ */

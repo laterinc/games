@@ -6,6 +6,11 @@ WORKDIR /build/web
 COPY web/package*.json ./
 RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 COPY web/ ./
+# 前端 Vite 变量是构建期注入的；分域部署时用 --build-arg 传真实地址
+ARG VITE_API_BASE=""
+ARG VITE_WS_URL=""
+ENV VITE_API_BASE=$VITE_API_BASE \
+    VITE_WS_URL=$VITE_WS_URL
 RUN npm run build
 
 # ---------- 阶段二：运行时 ----------

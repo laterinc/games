@@ -206,19 +206,65 @@ docker run -d --name gomoku -p 8765:8765 gomoku
 
 ## 配置（环境变量）
 
-复制 `.env.example` 为 `.env`（`scripts/start.sh` 会读取；Docker 用 compose 的 `environment`）。
+后端变量：复制 `.env.example` 为 `.env`（`scripts/start.sh` 会读取；Docker 用 compose 的 `environment`）。
 **所有变量都可不设，默认值即可跑。**
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | 监听地址，公网部署必须 `0.0.0.0` |
 | `PORT` | `8765` | 监听端口 |
-| `WEB_DIST` | `gomoku/web/dist` | 前端静态产物目录；不存在时只提供 API/WS |
+| `WEB_DIST` | `web/dist` | 前端静态产物目录；不存在时只提供 API/WS |
 | `BOARD_SIZE` | `15` | 棋盘路数（同时下发前端） |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | REST 允许跨域来源，逗号分隔；同源部署可不管 |
 | `ALLOWED_ORIGINS` | 空（放行） | WS 握手 Origin 白名单，公网建议设为你的域名 |
 | `ROOM_TTL_SECONDS` | `21600` | waiting 房间空闲回收时间（6 小时） |
 | `DISCONNECT_GRACE_SECONDS` | `60` | 掉线保留席位时间 |
+
+### 前端环境变量（VITE_*，构建期注入）
+
+前端变量在 `web/` 下，按 Vite 模式区分：
+
+| 文件 | 用途 |
+| --- | --- |
+| `web/.env.example` | 模板与写法说明 |
+| `web/.env.development` | `npm run dev` 使用（默认留空 = 5173 同源 + Vite 代理） |
+| `web/.env.production` | `npm run build` 使用（默认留空 = 同源单端口部署） |
+| `web/.env.local` / `web/.env.production.local` | 本机覆盖，已在 `.gitignore`，不会提交 |
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `VITE_WS_URL` | 空（同源 `/ws`） | WebSocket 地址；支持 `wss://host/ws`、`/ws`、`host/ws` 三种写法 |
+| `VITE_API_BASE` | 空（同源） | REST 基地址（大厅断线兜底的 `/api/rooms`）；只配它时 WS 自动推导为 `ws(s)://<该 host>/ws` |
+
+**默认什么都不用配**：单端口部署时页面 / REST / WS 全在当前域名下。
+只有前后端分开部署（如前端 Vercel、后端独立域名）才需要覆盖：
+
+```bash
+# 方式一：本地覆盖文件（推荐，不污染仓库）
+cd web
+cp .env.production .env.production.local
+# 编辑 .env.production.local：
+#   VITE_API_BASE=https://gomoku-api.example.com
+#   VITE_WS_URL=wss://gomoku-api.example.com/ws
+npm run build
+
+# 方式二：构建命令前注入
+cd web
+VITE_API_BASE=https://gomoku-api.example.com \
+VITE_WS_URL=wss://gomoku-api.example.com/ws \
+npm run build
+
+# 方式三：Docker 构建参数
+docker build -t gomoku \
+  --build-arg VITE_API_BASE=https://gomoku-api.example.com \
+  --build-arg VITE_WS_URL=wss://gomoku-api.example.com/ws .
+```
+
+分域部署时后端记得放行前端域名：`CORS_ORIGINS=https://前端域名`，
+以及（可选但建议）`ALLOWED_ORIGINS=https://前端域名`。
+
+> Vite 变量是**构建期静态注入**：改完必须重新 `npm run build`，改服务器环境变量或
+> 重启后端都不会改变已构建的 `dist`。
 
 ## 测试
 
@@ -227,7 +273,7 @@ docker run -d --name gomoku -p 8765:8765 gomoku
 cd server && .venv/bin/python -m pytest -q
 
 # 2) 端到端：真实启动服务后，用两个 WebSocket 客户端打完整对局（14 项检查）
-cd ../..   # 回到 gomoku/
+cd ..      # 回到仓库根目录
 server/.venv/bin/python scripts/e2e.py --url http://127.0.0.1:8765
 
 # 3) 前端类型检查 + 生产构建

@@ -8,5 +8,6 @@ server/.pytest_cache
 web/node_modules
 web/dist
 web/.vite
+**/*.local
 *.log
 .DS_Store
