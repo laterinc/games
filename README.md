@@ -80,7 +80,7 @@ gomoku/
 - 前端：<http://localhost:5173>（Vite HMR，`/api` 与 `/ws` 代理到后端）
 - 后端：<http://127.0.0.1:8765>（`/api/health` 可探活）
 
-> 如果 `.env` 里改了 `PORT`（例如 8281），Vite 代理也要跟着指过去：
+> 如果给后端换了端口（例如 `./scripts/dev.sh --port 8281`），Vite 代理也要跟着指过去：
 > 在 `web/.env.development` 里设置 `DEV_BACKEND=http://127.0.0.1:8281`。
 
 首次运行脚本会自动 `python3 -m venv server/.venv`、安装依赖、`npm install`。
@@ -88,12 +88,12 @@ gomoku/
 ### 手动启动
 
 ```bash
-# 后端（推荐：自动读取 .env 里的 HOST/PORT）
+# 后端（读取 .env 应用配置；监听地址用参数）
 cd server
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env        # 按需修改 HOST / PORT
-.venv/bin/python run.py     # 开发可加 --reload
+cp .env.example .env        # 按需修改棋盘/CORS 等应用配置
+.venv/bin/python run.py --host 0.0.0.0 --port 8765   # 监听地址用参数；--reload 热重载
 
 # 前端（另开终端）
 cd web
@@ -112,8 +112,8 @@ cd web && npm ci && npm run build        # 产物：web/dist
 
 # 2) 后端（仓库根目录）
 cd ..
-cp server/.env.example server/.env       # 默认 HOST=127.0.0.1 PORT=8000
-./scripts/start.sh                       # 只启动 API/WS
+cp server/.env.example server/.env       # 应用配置（棋盘、CORS 等）
+./scripts/start.sh --host 127.0.0.1 --port 8000   # 监听地址由启动参数决定
 
 # 3) 把 web/dist 上传到服务器，例如 /www/wwwroot/gomoku/web/dist
 ```
@@ -171,10 +171,8 @@ After=network.target
 
 [Service]
 WorkingDirectory=/opt/gomoku/server
-Environment=HOST=127.0.0.1
-Environment=PORT=8000
-# 端口读取 server/.env（也可保留上面的 Environment= 覆盖）
-ExecStart=/opt/gomoku/server/.venv/bin/python /opt/gomoku/server/run.py
+# 监听地址/端口是启动参数；应用配置仍从 server/.env 读取
+ExecStart=/opt/gomoku/server/.venv/bin/python /opt/gomoku/server/run.py --host 127.0.0.1 --port 8000
 Restart=always
 
 [Install]
@@ -293,17 +291,14 @@ VITE_WS_URL=wss://<后端域名>/ws
 后端变量：复制 `.env.example` 为 `.env`（`python run.py` / `scripts/start.sh` 会读取；Docker 用 compose 的 `environment`）。
 **所有变量都可不设，默认值即可跑。**
 
-> ⚠️ **`uvicorn app.main:app` 不会读取 `.env` 里的 `HOST`/`PORT`。**
-> `--host/--port` 是 uvicorn CLI 参数（默认 `127.0.0.1:8000`），`--env-file .env` 只是把变量
-> 注入应用进程，并不会改变监听端口——所以 `.env` 写 `PORT=8281`、启动后仍是 8000。
-> 需要 `.env` 生效请用 `python run.py`（或 `scripts/start.sh` / `scripts/dev.sh`）；
-> 坚持用 uvicorn CLI 时把地址显式写全：
-> `uvicorn app.main:app --host 127.0.0.1 --port 8281 --env-file .env`。
+> **监听地址/端口不在 `.env` 里**：`--host/--port` 是进程启动参数，统一通过
+> `python run.py --host ... --port ...`、`./scripts/start.sh --host ... --port ...`
+> 或 `uvicorn app.main:app --host ... --port ...` 传入。
+> `.env` 只承载应用行为配置（棋盘、CORS、Origin 白名单等）。
+> uvicorn 的 `--env-file .env` 只注入应用变量，**不会**设置监听端口。
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
-| `HOST` | `0.0.0.0` | 监听地址（由 `run.py` / 脚本读取；uvicorn CLI 需 `--host`） |
-| `PORT` | `8765` | 监听端口（由 `run.py` / 脚本读取；uvicorn CLI 需 `--port`） |
 | `BOARD_SIZE` | `15` | 棋盘路数（同时下发前端） |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | REST 允许跨域来源，逗号分隔；同源部署可不管 |
 | `ALLOWED_ORIGINS` | 空（放行） | WS 握手 Origin 白名单，公网建议设为你的域名 |

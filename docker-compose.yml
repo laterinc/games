@@ -4,8 +4,6 @@ services:
     image: gomoku-api:latest
     container_name: gomoku-api
     environment:
-      HOST: 0.0.0.0
-      PORT: "8765"
       BOARD_SIZE: "15"
       # 同域（默认）无需 CORS；前后端分域时填前端域名
       CORS_ORIGINS: ${CORS_ORIGINS:-}

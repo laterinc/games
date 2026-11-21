@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
-"""五子棋后端启动入口（读取 .env 并使用其中的 HOST/PORT）。
+"""五子棋后端启动入口。
 
-为什么需要它：`uvicorn app.main:app` 的 `--host/--port` 是 **uvicorn CLI 参数**，
-默认 127.0.0.1:8000；`--env-file .env` 只是把变量注入应用进程，uvicorn 自己
-不会用 `PORT=...` 作为监听端口。这个入口让 `.env` 里的 HOST/PORT 真正生效。
+- **监听地址是进程参数**（不放进 .env）：`--host` / `--port`，与 uvicorn CLI 一致；
+- **应用配置读 .env**：BOARD_SIZE、CORS_ORIGINS、ALLOWED_ORIGINS 等；
+  读取顺序为仓库根 `.env` → `server/.env`（后者优先），已存在的真实环境变量优先；
+- `uvicorn app.main:app` 的 `--env-file .env` 只注入应用变量，不会设置监听端口，
+  所以需要按端口启动时用本脚本或显式 `--host/--port`。
 
-读取顺序：仓库根 `.env` → `server/.env`（后者优先），已存在的真实环境变量优先。
 用法：
     cd server
-    .venv/bin/python run.py            # 读取 .env，按 HOST/PORT 监听
-    .venv/bin/python run.py --reload   # 开发热重载
+    .venv/bin/python run.py                                  # 0.0.0.0:8765
+    .venv/bin/python run.py --host 127.0.0.1 --port 8000
+    .venv/bin/python run.py --reload                         # 开发热重载
 """
 
 from __future__ import annotations
 
+import argparse
 import os
-import sys
 from pathlib import Path
 
 SERVER_DIR = Path(__file__).resolve().parent
@@ -50,20 +52,21 @@ def load_env_files() -> None:
         os.environ.setdefault(key, value)  # 真实环境变量优先
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="五子棋后端（REST + WebSocket）")
+    parser.add_argument("--host", default="0.0.0.0", help="监听地址（默认 0.0.0.0）")
+    parser.add_argument("--port", type=int, default=8765, help="监听端口（默认 8765）")
+    parser.add_argument("--reload", action="store_true", help="开发热重载")
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     load_env_files()
 
     import uvicorn
 
-    from app.config import Settings
-
-    settings = Settings.from_env()
-    uvicorn.run(
-        "app.main:app",
-        host=settings.host,
-        port=settings.port,
-        reload="--reload" in sys.argv[1:],
-    )
+    uvicorn.run("app.main:app", host=args.host, port=args.port, reload=args.reload)
 
 
 if __name__ == "__main__":

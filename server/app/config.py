@@ -44,8 +44,6 @@ def _env_csv(name: str) -> tuple[str, ...]:
 class Settings:
     """服务端运行配置。"""
 
-    host: str = "0.0.0.0"
-    port: int = 8765
     board_size: int = 15
     max_players: int = 2
     cors_origins: tuple[str, ...] = DEFAULT_CORS_ORIGINS
@@ -64,16 +62,11 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         """从环境变量构建设置；未设置的变量使用默认值。"""
-        raw_port = os.getenv("PORT") or os.getenv("APP_PORT")
-        port = int(raw_port.strip()) if raw_port and raw_port.strip() else 8765
-
         cors_origins = _env_csv("CORS_ORIGINS")
         if not cors_origins:
             cors_origins = DEFAULT_CORS_ORIGINS
 
         return cls(
-            host=(os.getenv("HOST") or "0.0.0.0").strip() or "0.0.0.0",
-            port=port,
             board_size=_env_int("BOARD_SIZE", 15),
             cors_origins=cors_origins,
             allowed_origins=_env_csv("ALLOWED_ORIGINS"),

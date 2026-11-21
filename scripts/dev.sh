@@ -23,7 +23,7 @@ fi
 echo "==> 后端 http://127.0.0.1:${PORT}"
 (
   cd server
-  exec .venv/bin/python run.py --reload
+  exec .venv/bin/python run.py --reload "$@"
 ) &
 BACK_PID=$!
 
