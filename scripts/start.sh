@@ -5,12 +5,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-if [ -f .env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . ./.env
-  set +a
-fi
+# 环境变量：先加载仓库根 .env，再加载 server/.env（后者优先，便于只配后端）
+for env_file in .env server/.env; do
+  if [ -f "$env_file" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . "$env_file"
+    set +a
+  fi
+done
 
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8765}"

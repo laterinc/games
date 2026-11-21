@@ -87,7 +87,10 @@ gomoku/
 cd server
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+# 不用 .env 时（全部默认值）：
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload
+# 想用 server/.env 时（先 cp .env.example .env）：
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8765 --reload --env-file .env
 
 # 前端（另开终端）
 cd web
@@ -208,6 +211,10 @@ docker run -d --name gomoku -p 8765:8765 gomoku
 
 后端变量：复制 `.env.example` 为 `.env`（`scripts/start.sh` 会读取；Docker 用 compose 的 `environment`）。
 **所有变量都可不设，默认值即可跑。**
+
+> 直接 `uvicorn app.main:app` 启动时，服务端**不会自动读取 `.env`**（也不依赖 python-dotenv 之外的框架）。
+> 需要显式传 `--env-file .env`（uvicorn[standard] 已带 python-dotenv），或先 `set -a; . ./.env; set +a` 再启动。
+> 用 `scripts/start.sh` / `scripts/dev.sh` 时无需关心：脚本会依次加载仓库根 `.env` 和 `server/.env`（后者优先）。
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
