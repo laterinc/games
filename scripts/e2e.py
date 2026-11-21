@@ -17,6 +17,7 @@ import urllib.request
 from typing import Any, Callable
 
 import websockets
+from websockets.exceptions import WebSocketException
 
 CHECKS = 0
 
@@ -257,6 +258,6 @@ if __name__ == "__main__":
     except AssertionError as exc:  # 主要给 HTTP 断言兜底
         print(f"断言失败：{exc}")
         sys.exit(1)
-    except websockets.exceptions.WebSocketException as exc:
+    except WebSocketException as exc:
         print(f"WebSocket 失败：{exc}")
         sys.exit(1)

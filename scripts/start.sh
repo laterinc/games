@@ -25,8 +25,11 @@ if [ ! -f web/dist/index.html ]; then
   npm --prefix web run build
 fi
 
-if [ ! -x server/.venv/bin/uvicorn ]; then
+# 仓库可能被整体移动：shebang/sys.prefix 与当前路径不符或不可执行时自动重建
+if ! [ -x server/.venv/bin/uvicorn ] || \
+   ! server/.venv/bin/python -c "import sys; raise SystemExit(0 if sys.prefix == '$ROOT/server/.venv' else 1)" >/dev/null 2>&1; then
   echo "==> 创建 Python 虚拟环境并安装依赖"
+  rm -rf server/.venv
   python3 -m venv server/.venv
   server/.venv/bin/python -m pip install -q --upgrade pip
   server/.venv/bin/pip install -q -r server/requirements.txt
