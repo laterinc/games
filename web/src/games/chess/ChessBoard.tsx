@@ -212,24 +212,54 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
 
   const board = game.board;
   const myTurn = interactive;
+  // 始终让玩家自己在下：执黑时整盘 180° 翻转。未入座/观战默认红方在下。
+  const flipped = myColor === 'black';
+  const toDisplay = useCallback(
+    (point: Point): Point =>
+      flipped ? { row: ROWS - 1 - point.row, col: COLS - 1 - point.col } : point,
+    [flipped],
+  );
+  const toBoard = useCallback(
+    (point: Point): Point =>
+      flipped ? { row: ROWS - 1 - point.row, col: COLS - 1 - point.col } : point,
+    [flipped],
+  );
+  const pieceAt = useCallback(
+    (point: Point): string | null => {
+      const source = toBoard(point);
+      return board[source.row]?.[source.col] ?? null;
+    },
+    [board, toBoard],
+  );
 
   const legalMoves = useMemo(() => {
     if (!selected || !myTurn) return [] as ChessLegalMove[];
+    const origin = toBoard(selected);
     return game.legalMoves.filter(
-      (move) => move.from.row === selected.row && move.from.col === selected.col,
+      (move) => move.from.row === origin.row && move.from.col === origin.col,
     );
-  }, [game.legalMoves, myTurn, selected]);
+  }, [game.legalMoves, myTurn, selected, toBoard]);
 
   const legalTargets = useMemo(
-    () => new Set(legalMoves.map((move) => `${move.to.row}:${move.to.col}`)),
-    [legalMoves],
+    () =>
+      new Set(
+        legalMoves.map((move) => {
+          const target = toDisplay(move.to);
+          return `${target.row}:${target.col}`;
+        }),
+      ),
+    [legalMoves, toDisplay],
   );
 
-  const selectedPiece = selected ? board[selected.row]?.[selected.col] ?? null : null;
+  const selectedBoardPoint = selected ? toBoard(selected) : null;
+  const selectedPiece = selectedBoardPoint
+    ? (board[selectedBoardPoint.row]?.[selectedBoardPoint.col] ?? null)
+    : null;
 
   // 棋盘变化/换边后清空选择
   useEffect(() => {
     setSelected(null);
+    setHover(null);
   }, [game.moves.length, game.currentTurn, myColor]);
 
   useLayoutEffect(() => {
@@ -281,8 +311,9 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
     // 上一步起止点
     if (game.lastMove) {
       for (const point of [game.lastMove.from, game.lastMove.to]) {
-        const x = MARGIN + point.col * CELL;
-        const y = MARGIN + point.row * CELL;
+        const display = toDisplay(point);
+        const x = MARGIN + display.col * CELL;
+        const y = MARGIN + display.row * CELL;
         ctx.strokeStyle = 'rgba(233, 180, 95, 0.9)';
         ctx.lineWidth = 2;
         const r = PIECE_RADIUS + 6;
@@ -304,12 +335,13 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
       for (let col = 0; col < COLS; col += 1) {
         const piece = board[row]?.[col];
         if (!piece) continue;
+        const display = toDisplay({ row, col });
         const isCheckedKing =
           game.check &&
           ((game.currentTurn === 'red' && piece === 'K') ||
             (game.currentTurn === 'black' && piece === 'k'));
-        drawPiece(ctx, piece, MARGIN + col * CELL, MARGIN + row * CELL, {
-          selected: selected?.row === row && selected?.col === col,
+        drawPiece(ctx, piece, MARGIN + display.col * CELL, MARGIN + display.row * CELL, {
+          selected: selected?.row === display.row && selected?.col === display.col,
           checked: isCheckedKing,
         });
       }
@@ -318,8 +350,9 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
     // 合法落点提示
     if (selectedPiece) {
       for (const move of legalMoves) {
-        const x = MARGIN + move.to.col * CELL;
-        const y = MARGIN + move.to.row * CELL;
+        const display = toDisplay(move.to);
+        const x = MARGIN + display.col * CELL;
+        const y = MARGIN + display.row * CELL;
         const target = board[move.to.row]?.[move.to.col];
         if (target) {
           ctx.strokeStyle = 'rgba(233, 180, 95, 0.9)';
@@ -340,7 +373,7 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
 
     // 悬停提示
     if (interactive && hover) {
-      const targetPiece = board[hover.row]?.[hover.col];
+      const targetPiece = pieceAt(hover);
       if (targetPiece) {
         ctx.strokeStyle = 'rgba(255, 248, 231, 0.35)';
         ctx.lineWidth = 1.4;
@@ -384,6 +417,9 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
     selected,
     selectedPiece,
     sizePx,
+    toDisplay,
+    pieceAt,
+    flipped,
   ]);
 
   const pointFromEvent = useCallback(
@@ -412,10 +448,10 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
       setSelected(null);
       return;
     }
-    const piece = board[point.row]?.[point.col] ?? null;
+    const piece = pieceAt(point);
     if (selected) {
       if (legalTargets.has(`${point.row}:${point.col}`)) {
-        onMove({ from: selected, to: point });
+        onMove({ from: toBoard(selected), to: toBoard(point) });
         setSelected(null);
         return;
       }
@@ -473,9 +509,9 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
       case ' ': {
         event.preventDefault();
         if (!interactive || !myColor) return;
-        const piece = board[cursor.row]?.[cursor.col] ?? null;
+        const piece = pieceAt(cursor);
         if (selected && legalTargets.has(`${cursor.row}:${cursor.col}`)) {
-          onMove({ from: selected, to: cursor });
+          onMove({ from: toBoard(selected), to: toBoard(cursor) });
           setSelected(null);
         } else if (piece && pieceColor(piece) === myColor) {
           setSelected(cursor);
