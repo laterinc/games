@@ -1126,6 +1126,59 @@ button {
   color: var(--text-dim);
 }
 
+.result-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  border-radius: 18px;
+  background: radial-gradient(circle at 50% 50%, rgba(6, 10, 15, 0.2), transparent 72%);
+  pointer-events: none;
+  animation: resultOverlayIn 0.24s ease both;
+}
+
+.result-overlay .result-banner {
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: min(420px, 88%);
+  padding: 20px 28px;
+  text-align: center;
+  border-color: rgba(233, 180, 95, 0.32);
+  background:
+    linear-gradient(150deg, rgba(33, 43, 56, 0.96), rgba(13, 19, 27, 0.96));
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  backdrop-filter: blur(16px) saturate(1.15);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 30px 70px -28px rgba(0, 0, 0, 0.95);
+  animation: resultPop 0.34s cubic-bezier(0.2, 0.85, 0.3, 1.15) both;
+  pointer-events: auto;
+}
+
+.result-overlay .result-title {
+  font-size: clamp(26px, 3.4vw, 36px);
+  letter-spacing: 0.1em;
+}
+
+.result-overlay .result-detail {
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.result-overlay .result-hint {
+  margin-left: 0;
+  margin-top: 2px;
+  color: var(--text-dim);
+}
+
+.result-banner.tone-red .result-title {
+  color: #ff9d89;
+  text-shadow: 0 0 24px rgba(255, 110, 84, 0.55);
+}
+
 .board-footer {
   display: flex;
   align-items: center;
@@ -1687,6 +1740,26 @@ button {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes resultOverlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes resultPop {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 

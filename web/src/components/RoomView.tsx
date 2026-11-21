@@ -350,16 +350,6 @@ export function RoomView({
             )}
           </div>
 
-          {result ? (
-            <div className={`result-banner tone-${result.tone}`} role="status">
-              <span className="result-title">{result.title}</span>
-              {result.detail ? <span className="result-detail">{result.detail}</span> : null}
-              <span className="result-hint">
-                {spectator ? '观战中' : isAiRoom ? '可在右侧再来一局' : '可在右侧投票再来一局'}
-              </span>
-            </div>
-          ) : null}
-
           <div className={`board-stage${isChess ? ' is-chess' : ''}`}>
             {isChess ? (
               <ChessBoard
@@ -377,6 +367,18 @@ export function RoomView({
                 onMove={(row, col) => handleMove({ row, col })}
               />
             )}
+
+            {result ? (
+              <div className="result-overlay">
+                <div className={`result-banner tone-${result.tone}`} role="status">
+                  <span className="result-title">{result.title}</span>
+                  {result.detail ? <span className="result-detail">{result.detail}</span> : null}
+                  <span className="result-hint">
+                    {spectator ? '观战中' : isAiRoom ? '可以再来一局' : '双方投票后自动再来一局'}
+                  </span>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="board-footer">
