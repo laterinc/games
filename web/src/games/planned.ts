@@ -10,11 +10,11 @@ export const tankGame: GameListing = {
   label: '坦克大战',
   short: '实时对轰',
   icon: '坦',
-  description: '驾驶坦克在掩体间穿梭，实时瞄准对轰，支持多名玩家同场竞技。',
+  description: '驾驶坦克在掩体间穿梭，实时瞄准对轰，和朋友们来一场热闹的混战。',
   category: 'action',
   mode: 'realtime',
   players: '2–8 人',
-  tags: ['实时对战', '多人在线', '开发中'],
+  tags: ['实时对战', '好友同场', '开发中'],
   status: 'planned',
 };
 

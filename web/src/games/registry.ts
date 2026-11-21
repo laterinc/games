@@ -36,12 +36,12 @@ export const GAME_CATEGORIES: readonly {
   {
     key: 'board',
     label: '棋类对战',
-    description: '回合制，服务端逐手裁决，适合慢慢想。',
+    description: '回合一局，适合边聊边下。',
   },
   {
     key: 'action',
     label: '实时对战',
-    description: '高频状态同步，拼操作与配合。',
+    description: '实时开打，和朋友一起更热闹。',
   },
 ];
 

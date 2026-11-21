@@ -2,6 +2,8 @@
 
 一个可外网连接的**多游戏联机大厅**：目前包含 **五子棋** 与 **中国象棋**，前端 React 18 + TypeScript + Vite，后端 Python 3.11 + FastAPI + WebSocket。服务端是唯一裁判，前端只做展示与乐观交互。
 
+> 定位：**仅供朋友之间休闲娱乐**，不提供赌博、押注或任何真实货币交易，也不用于商业竞技赛事。
+>
 > 项目原名 `gomoku`，现更名为 **games**；五子棋只是其中一个游戏，新增小游戏只需实现一份 `GameRules` 规则插件。
 > 线上游戏中心：`https://games.later.design/`；后端：`https://cloudflare.org.cn/games`，WebSocket：`wss://cloudflare.org.cn/games/ws`。
 

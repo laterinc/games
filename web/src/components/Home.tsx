@@ -43,17 +43,14 @@ function GameCard({
 
       <div className="game-card-foot">
         {playable ? (
-          <>
-            <button
-              type="button"
-              className="btn btn-primary btn-small"
-              aria-label={`进入${game.label}`}
-              onClick={() => onOpenGame(game.game as GameType)}
-            >
-              进入游戏
-            </button>
-            <span className="game-card-short">{game.short}</span>
-          </>
+          <button
+            type="button"
+            className="btn btn-primary btn-small"
+            aria-label={`进入${game.label}`}
+            onClick={() => onOpenGame(game.game as GameType)}
+          >
+            进入游戏
+          </button>
         ) : (
           <span className="game-card-soon">敬请期待</span>
         )}
@@ -72,16 +69,16 @@ export function Home({ connected, onOpenGame }: HomeProps) {
         <div className="home-hero-copy">
           <span className="hero-eyebrow">
             <span className="live-dot" aria-hidden="true" />
-            游戏中心 · 无需注册
+            好友同乐 · 无需注册
           </span>
-          <h1 className="home-title">选一个游戏，马上开局</h1>
+          <h1 className="home-title">和朋友，随时开一局</h1>
           <p className="home-sub">
-            棋类回合制与实时对战，全部在浏览器里联机。服务端裁判、邀请好友、断线可续。
+            五子棋、中国象棋，打开浏览器就能玩。约上朋友、开个房间，输赢都图个开心。
           </p>
           <div className="home-hero-meta">
-            <span>{playableCount} 款游戏可玩</span>
-            <span>{connected ? '联机服务已就绪' : '正在连接服务器…'}</span>
-            <span>更多游戏持续接入</span>
+            <span>{playableCount} 款游戏</span>
+            <span>打开即玩</span>
+            <span>{connected ? '好友可加入' : '正在连接…'}</span>
           </div>
         </div>
 
@@ -90,6 +87,13 @@ export function Home({ connected, onOpenGame }: HomeProps) {
           <span className="home-art-tile tile-chess">象</span>
           <span className="home-art-tile tile-tank">坦</span>
         </div>
+      </div>
+
+      <div className="home-notice card glass" role="note">
+        <span className="home-notice-badge">友情提示</span>
+        <p>
+          本站仅供朋友之间休闲娱乐，不提供赌博、押注、抽奖或任何真实货币交易。请文明游戏，友好交流。
+        </p>
       </div>
 
       {GAME_CATEGORIES.map((category) => {
@@ -118,13 +122,10 @@ export function Home({ connected, onOpenGame }: HomeProps) {
 
       <div className="home-roadmap card glass">
         <div>
-          <h2>更多游戏正在接入</h2>
-          <p>
-            新游戏按“一个游戏一个目录”扩展：路由、房间、邀请链接与首页卡片自动生效。实时游戏将使用
-            tick + 二进制增量快照，回合制继续使用 JSON。
-          </p>
+          <h2>更多小游戏在路上</h2>
+          <p>坦克大战等实时玩法正在开发中，上线后会直接出现在这里。叫上朋友，一起等下一局。</p>
         </div>
-        <span className="home-roadmap-badge">协议 v3 规划中</span>
+        <span className="home-roadmap-badge">陆续上线</span>
       </div>
     </section>
   );

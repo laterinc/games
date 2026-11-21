@@ -9,8 +9,8 @@ export const gomokuGame: GameDefinition = {
   mode: 'turn-based',
   players: '2 人',
   icon: '五',
-  description: '十五路棋盘，黑棋先行，先连成五子者胜。快速匹配陌生棋友，或邀请好友开一局。',
-  tags: ['15×15 标准棋盘', '服务端裁判', '断线可续 · 支持观战'],
+  description: '十五路棋盘，黑棋先行，先连成五子者胜。适合和老朋友来一盘，随时开局。',
+  tags: ['15×15 棋盘', '五连获胜', '支持观战'],
   note: '横 · 竖 · 斜，任意方向连成五子即胜',
   guide: ['匹配或建房', '双方准备，黑棋先行', '横竖斜先连五子获胜'],
   colorOptions: [

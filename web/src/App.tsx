@@ -186,7 +186,7 @@ export default function App() {
 
       <Toast toasts={state.toasts} onDismiss={actions.dismissToast} />
 
-      <footer className="app-footer">游戏协议 v2 · 服务端为唯一裁判</footer>
+      <footer className="app-footer">仅供朋友之间休闲娱乐 · 请勿用于赌博或商业用途</footer>
     </div>
   );
 }
