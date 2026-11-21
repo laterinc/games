@@ -2675,15 +2675,6 @@ button {
   }
 }
 
-/* ---------- 落子手感：棋盘按压反馈 ---------- */
-.board-surface {
-  transition: transform 0.12s ease;
-}
-
-.board-frame.is-interactive:active .board-surface {
-  transform: scale(0.997);
-}
-
 /* ---------- 音效开关 ---------- */
 .sound-toggle {
   min-width: 32px;
