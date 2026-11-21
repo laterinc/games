@@ -1,0 +1,14 @@
+node_modules
+dist
+build
+coverage
+*.lock
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+.turbo
+.next
+
+# 生成物：由 `cargo run -p later-routegen -- gen` 从后端装配产出。
+# 格式化它没有意义，且会让「重新生成后逐字节相同」的守卫误报。
+api-routes.generated.json
