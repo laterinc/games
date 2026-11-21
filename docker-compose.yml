@@ -1,0 +1,14 @@
+services:
+  gomoku:
+    build: .
+    image: gomoku:latest
+    container_name: gomoku
+    ports:
+      - "8765:8765"
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8765"
+      BOARD_SIZE: "15"
+      # 公网域名部署时建议填上（例如 https://gomoku.example.com）
+      ALLOWED_ORIGINS: ""
+    restart: unless-stopped

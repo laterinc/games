@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# 开发模式：后端 8765（--reload）+ 前端 Vite 5173（HMR，代理 /api 与 /ws）
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT"
+
+if [ -f .env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . ./.env
+  set +a
+fi
+
+if [ ! -x server/.venv/bin/uvicorn ]; then
+  echo "==> 创建 Python 虚拟环境并安装依赖"
+  python3 -m venv server/.venv
+  server/.venv/bin/python -m pip install -q --upgrade pip
+  server/.venv/bin/pip install -q -r server/requirements.txt
+fi
+
+if [ ! -d web/node_modules ]; then
+  echo "==> 安装前端依赖"
+  npm --prefix web install
+fi
+
+PORT="${PORT:-8765}"
+echo "==> 后端 http://127.0.0.1:${PORT}"
+(
+  cd server
+  exec .venv/bin/uvicorn app.main:app --host "${HOST:-127.0.0.1}" --port "$PORT" --reload
+) &
+BACK_PID=$!
+
+cleanup() {
+  kill "$BACK_PID" 2>/dev/null || true
+  wait "$BACK_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+echo "==> 前端 http://localhost:5173"
+npm --prefix web run dev

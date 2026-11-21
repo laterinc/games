@@ -1,0 +1,308 @@
+import { useEffect, useState } from 'react';
+import type { ChatMessage, Color, Room, ToastLevel } from '../types';
+import type { SocketStatus } from '../lib/socket';
+import { COLOR_LABEL, ROOM_STATUS_LABEL } from '../lib/protocol';
+import { copyText } from '../lib/clipboard';
+import { Board } from './Board';
+import { ChatPanel } from './ChatPanel';
+import { Modal } from './Modal';
+import { PlayerCard } from './PlayerCard';
+
+interface RoomViewProps {
+  room: Room;
+  status: SocketStatus;
+  playerId: string | null;
+  chat: ChatMessage[];
+  onMove: (row: number, col: number) => void;
+  onReady: () => void;
+  onRematch: () => void;
+  onLeave: () => void;
+  onChat: (text: string) => void;
+  notify: (text: string, level?: ToastLevel) => void;
+}
+
+interface ResultInfo {
+  title: string;
+  detail: string;
+  tone: Color | 'draw' | 'neutral';
+}
+
+function describeResult(room: Room): ResultInfo | null {
+  if (room.status !== 'finished') return null;
+  const { winner, endedReason } = room.game;
+  if (endedReason === 'forfeit') {
+    return {
+      title: winner ? `${COLOR_LABEL[winner]}胜` : '对局结束',
+      detail: '对手离开，本局按弃权结算',
+      tone: winner ?? 'neutral',
+    };
+  }
+  if (winner) {
+    return { title: `${COLOR_LABEL[winner]}胜`, detail: '五连达成', tone: winner };
+  }
+  if (endedReason === 'draw') {
+    return { title: '和棋', detail: '棋盘已下满，未分胜负', tone: 'draw' };
+  }
+  return { title: '对局结束', detail: '', tone: 'neutral' };
+}
+
+/** 对局页：棋盘、双方信息、回合/手数、准备/再来一局、邀请与聊天。 */
+export function RoomView({
+  room,
+  status,
+  playerId,
+  chat,
+  onMove,
+  onReady,
+  onRematch,
+  onLeave,
+  onChat,
+  notify,
+}: RoomViewProps) {
+  const connected = status === 'open';
+  const players = room.players;
+  const me = playerId ? players.find((player) => player.id === playerId) ?? null : null;
+  const opponent = playerId ? players.find((player) => player.id !== playerId) ?? null : null;
+  const blackSeat = players.find((player) => player.color === 'black') ?? null;
+  const whiteSeat = players.find((player) => player.color === 'white') ?? null;
+  const myColor = me?.color ?? null;
+  const game = room.game;
+  const myTurn =
+    connected && room.status === 'playing' && myColor !== null && game.currentTurn === myColor;
+
+  const [pending, setPending] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+
+  // 服务端广播的棋谱一旦增长，说明落子已被确认。
+  useEffect(() => {
+    setPending(false);
+  }, [game.moves.length, room.status, room.id]);
+
+  useEffect(() => {
+    if (!pending) return undefined;
+    const timer = window.setTimeout(() => setPending(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, [pending]);
+
+  const interactive = myTurn && !pending;
+
+  const handleMove = (row: number, col: number): void => {
+    if (!interactive) return;
+    setPending(true);
+    onMove(row, col);
+  };
+
+  const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${room.id}`;
+
+  const copyInvite = async (): Promise<void> => {
+    const copied = await copyText(inviteUrl);
+    notify(copied ? '邀请链接已复制' : '复制失败，请手动复制链接', copied ? 'success' : 'error');
+  };
+
+  const copyCode = async (): Promise<void> => {
+    const copied = await copyText(room.id);
+    notify(copied ? `房间码 ${room.id} 已复制` : '复制失败，请手动复制房间码', copied ? 'success' : 'error');
+  };
+
+  const requestLeave = (): void => {
+    if (room.status === 'playing') {
+      setLeaveOpen(true);
+      return;
+    }
+    onLeave();
+  };
+
+  const result = describeResult(room);
+  const readyCount = players.filter((player) => player.ready).length;
+  const rematchVotes = room.rematchVotes;
+  const iVotedRematch = playerId !== null && rematchVotes.includes(playerId);
+  const votingNames = players
+    .filter((player) => rematchVotes.includes(player.id))
+    .map((player) => player.name)
+    .join('、');
+
+  const turnLabel = pending
+    ? '落子确认中…'
+    : room.status === 'playing'
+      ? myTurn
+        ? '轮到你落子'
+        : `等待${COLOR_LABEL[game.currentTurn]}落子`
+      : '';
+
+  return (
+    <section className="room-view">
+      <header className="room-header card glass">
+        <div className="room-title-group">
+          <h1 className="room-title">{room.name}</h1>
+          <div className="room-sub">
+            <span className={`pill pill-${room.status}`}>{ROOM_STATUS_LABEL[room.status]}</span>
+            <span className="room-code-chip">
+              房间码 <strong>{room.id}</strong>
+            </span>
+            <button type="button" className="btn btn-ghost btn-tiny" onClick={copyCode}>
+              复制房间码
+            </button>
+            <button type="button" className="btn btn-ghost btn-tiny" onClick={copyInvite}>
+              复制邀请链接
+            </button>
+            {room.visibility === 'private' ? <span className="badge badge-private">私密</span> : null}
+          </div>
+        </div>
+        <div className="room-header-actions">
+          <span className={`conn-chip${connected ? ' is-online' : ' is-offline'}`}>
+            <span className="online-dot" aria-hidden="true" />
+            {connected ? '已连接' : '重连中'}
+          </span>
+          <button type="button" className="btn btn-ghost btn-small danger" onClick={requestLeave}>
+            离开房间
+          </button>
+        </div>
+      </header>
+
+      <div className="room-grid">
+        <div className="board-panel card glass">
+          <div className="turn-bar">
+            {room.status === 'playing' ? (
+              <>
+                <span className={`turn-dot turn-${game.currentTurn}`} aria-hidden="true" />
+                <span className={`turn-text${myTurn && !pending ? ' is-my-turn' : ''}`}>
+                  {turnLabel}
+                </span>
+                <span className="turn-meta">手数 {game.moves.length}</span>
+              </>
+            ) : room.status === 'waiting' ? (
+              <>
+                <span className="turn-dot turn-waiting" aria-hidden="true" />
+                <span className="turn-text">
+                  {players.length < 2 ? '等待对手加入…' : me?.ready ? '已准备，等待对手' : '双方准备后开局'}
+                </span>
+                <span className="turn-meta">
+                  已准备 {readyCount}/{players.length}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="turn-dot turn-finished" aria-hidden="true" />
+                <span className="turn-text">对局结束</span>
+                <span className="turn-meta">手数 {game.moves.length}</span>
+              </>
+            )}
+          </div>
+
+          {result ? (
+            <div className={`result-banner tone-${result.tone}`} role="status">
+              <span className="result-title">{result.title}</span>
+              {result.detail ? <span className="result-detail">{result.detail}</span> : null}
+              <span className="result-hint">可在右侧投票再来一局</span>
+            </div>
+          ) : null}
+
+          <div className="board-stage">
+            <Board game={game} myColor={myColor} interactive={interactive} onMove={handleMove} />
+          </div>
+
+          <div className="board-footer">
+            <span>黑棋先行 · 五连获胜</span>
+            <span>{myColor ? `你执${COLOR_LABEL[myColor]}` : '未入座'}</span>
+          </div>
+        </div>
+
+        <aside className="room-side">
+          <div className="card glass players-card">
+            <PlayerCard
+              player={blackSeat}
+              seatColor="black"
+              isMe={blackSeat !== null && blackSeat.id === playerId}
+            />
+            <div className="vs-divider" aria-hidden="true">
+              VS
+            </div>
+            <PlayerCard
+              player={whiteSeat}
+              seatColor="white"
+              isMe={whiteSeat !== null && whiteSeat.id === playerId}
+            />
+            {opponent && !opponent.connected ? (
+              <p className="hint-warn">对手掉线，60 秒内未重连将按离开处理。</p>
+            ) : null}
+          </div>
+
+          <div className="card glass room-actions-card">
+            {room.status === 'waiting' ? (
+              <>
+                <p className="action-title">
+                  {players.length < 2 ? '等待对手加入' : me?.ready ? '已准备，等待对手' : '双方准备后开局'}
+                </p>
+                <button
+                  type="button"
+                  className={`btn btn-block ${me?.ready ? 'btn-ghost' : 'btn-primary'}`}
+                  onClick={onReady}
+                  disabled={!connected || !me}
+                >
+                  {me?.ready ? '取消准备' : '准备'}
+                </button>
+                <p className="action-hint">把邀请链接发给好友，或等待大厅玩家加入。</p>
+              </>
+            ) : room.status === 'finished' ? (
+              <>
+                <p className="action-title">再来一局（{rematchVotes.length}/2）</p>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-block"
+                  onClick={onRematch}
+                  disabled={!connected || iVotedRematch}
+                >
+                  {iVotedRematch ? '已投票，等待对手' : '再来一局'}
+                </button>
+                {votingNames ? <p className="action-hint">{votingNames} 已投票</p> : null}
+                <p className="action-hint">双方都投票后自动重开，并交换黑白。</p>
+              </>
+            ) : (
+              <>
+                <p className="action-title">{myTurn ? '轮到你落子' : '等待对手落子'}</p>
+                <p className="action-hint">
+                  {pending ? '已提交落子，等待服务端确认…' : '点击棋盘交叉点落子，仅轮到你时可下。'}
+                </p>
+              </>
+            )}
+            <button
+              type="button"
+              className="btn btn-ghost btn-block danger"
+              onClick={requestLeave}
+              disabled={!connected}
+            >
+              离开房间
+            </button>
+          </div>
+
+          <ChatPanel messages={chat} onSend={onChat} myPlayerId={playerId} disabled={!connected} />
+        </aside>
+      </div>
+
+      <Modal
+        open={leaveOpen}
+        title="确认离开房间"
+        onClose={() => setLeaveOpen(false)}
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost" onClick={() => setLeaveOpen(false)}>
+              继续对局
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => {
+                setLeaveOpen(false);
+                onLeave();
+              }}
+            >
+              确认离开
+            </button>
+          </>
+        }
+      >
+        <p>对局仍在进行中，现在离开将被判负（对手获胜）。确定要离开吗？</p>
+      </Modal>
+    </section>
+  );
+}
