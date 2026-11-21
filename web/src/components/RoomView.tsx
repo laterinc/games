@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChatMessage, Color, Point, Room, ToastLevel } from '../types';
 import type { SocketStatus } from '../lib/socket';
 import { COLOR_LABEL, ROOM_STATUS_LABEL } from '../lib/protocol';
+import { isSoundEnabled, playResultSound, playStoneSound, setSoundEnabled, unlockAudio } from '../lib/sound';
 import { copyText } from '../lib/clipboard';
 import { Board } from './Board';
 import { ChatPanel } from './ChatPanel';
@@ -57,6 +58,27 @@ function describeResult(room: Room): ResultInfo | null {
   return { title: '对局结束', detail: '', tone: 'neutral' };
 }
 
+function IconSound({ muted }: { muted: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" className="btn-svg">
+      <path
+        d="M4 9.5v5h3.2L12 18V6L7.2 9.5H4Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
+      {muted ? (
+        <path d="m16 9 5 5m0-5-5 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      ) : (
+        <>
+          <path d="M15.5 9a4 4 0 0 1 0 6" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+          <path d="M18 6.5a8 8 0 0 1 0 11" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 /** 对局页：棋盘、双方信息、回合/手数、准备/再来一局、邀请与聊天。 */
 export function RoomView({
   room,
@@ -98,6 +120,10 @@ export function RoomView({
   const pending = pendingMove !== null;
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [resignOpen, setResignOpen] = useState(false);
+  const [soundOn, setSoundOn] = useState(isSoundEnabled());
+  const ownPendingRef = useRef<Point | null>(null);
+  const prevMovesRef = useRef(game.moves.length);
+  const prevStatusRef = useRef(room.status);
 
   // 服务端广播的棋谱一旦变化，说明落子已被确认（或已被拒绝/撤销）。
   useEffect(() => {
@@ -110,13 +136,55 @@ export function RoomView({
     return () => window.clearTimeout(timer);
   }, [pendingMove]);
 
+  // 音效：别人/AI 落子时播放；自己的落子已在点击时播过
+  useEffect(() => {
+    const previous = prevMovesRef.current;
+    const next = game.moves.length;
+    const lastMove = next > 0 ? game.moves[next - 1] : null;
+    if (next > previous && lastMove) {
+      const own = ownPendingRef.current;
+      const confirmedOwn =
+        own !== null && lastMove.row === own.row && lastMove.col === own.col;
+      if (!confirmedOwn) {
+        playStoneSound(lastMove.color);
+      }
+      ownPendingRef.current = null;
+    } else if (next < previous) {
+      ownPendingRef.current = null;
+    }
+    prevMovesRef.current = next;
+  }, [game.moves]);
+
+  useEffect(() => {
+    if (room.status === 'finished' && prevStatusRef.current !== 'finished') {
+      if (game.winner === null || spectator || myColor === null) {
+        playResultSound('draw');
+      } else {
+        playResultSound(game.winner === myColor ? 'win' : 'loss');
+      }
+    }
+    prevStatusRef.current = room.status;
+  }, [room.status, game.winner, myColor, spectator]);
+
   const interactive = myTurn && !pending;
 
-  const handleMove = (row: number, col: number): void => {
-    if (!interactive) return;
-    // 乐观落子：先立刻显示半透明棋子，等服务端快照回来再替换为正式棋子
-    setPendingMove({ row, col });
-    onMove(row, col);
+  const handleMove = useCallback(
+    (row: number, col: number): void => {
+      if (!interactive) return;
+      // 乐观落子：先立刻显示半透明棋子，等服务端快照回来再替换为正式棋子
+      ownPendingRef.current = { row, col };
+      setPendingMove({ row, col });
+      if (myColor) playStoneSound(myColor);
+      onMove(row, col);
+    },
+    [interactive, myColor, onMove],
+  );
+
+  const toggleSound = (): void => {
+    const next = !soundOn;
+    setSoundEnabled(next);
+    setSoundOn(next);
+    if (next) unlockAudio();
   };
 
   const inviteUrl = `${window.location.origin}${window.location.pathname}?room=${room.id}`;
@@ -183,6 +251,16 @@ export function RoomView({
           </div>
         </div>
         <div className="room-header-actions">
+          <button
+            type="button"
+            className="btn btn-ghost btn-tiny sound-toggle"
+            onClick={toggleSound}
+            aria-label={soundOn ? '关闭音效' : '开启音效'}
+            title={soundOn ? '关闭音效' : '开启音效'}
+            aria-pressed={soundOn}
+          >
+            <IconSound muted={!soundOn} />
+          </button>
           <span className={`conn-chip${connected ? ' is-online' : ' is-offline'}`}>
             <span className="online-dot" aria-hidden="true" />
             {connected ? '已连接' : '重连中'}

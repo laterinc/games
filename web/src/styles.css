@@ -2855,3 +2855,20 @@ button {
     stroke-dashoffset: 0;
   }
 }
+
+/* ---------- 音效开关 ---------- */
+.sound-toggle {
+  min-width: 32px;
+  height: 30px;
+  padding: 4px 7px;
+  border-radius: 9px;
+}
+
+.sound-toggle .btn-svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sound-toggle[aria-pressed='false'] {
+  color: var(--text-dim);
+}

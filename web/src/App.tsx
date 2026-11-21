@@ -5,6 +5,7 @@ import { Toast } from './components/Toast';
 import { useGameSocket } from './hooks/useGameSocket';
 import type { SocketStatus } from './lib/socket';
 import { loadNickname, randomNickname, saveNickname } from './lib/session';
+import { unlockAudio } from './lib/sound';
 
 const STATUS_TEXT: Record<SocketStatus, string> = {
   connecting: '连接中…',
@@ -35,6 +36,17 @@ export default function App() {
   useEffect(() => {
     if (nickname.trim()) saveNickname(nickname);
   }, [nickname]);
+
+  // 浏览器自动播放限制：首次用户手势时解锁 WebAudio
+  useEffect(() => {
+    const unlock = (): void => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { once: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
 
   // 房间 ID 同步到 URL，刷新/分享链接可回到对应入口；离开后移除。
   useEffect(() => {

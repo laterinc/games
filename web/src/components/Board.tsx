@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useMemo,
   useRef,
@@ -90,7 +91,7 @@ function StoneShape({ color, cx, cy }: { color: Color; cx: number; cy: number })
   );
 }
 
-export function Board({ game, myColor, interactive, pendingMove, onMove }: BoardProps) {
+function BoardComponent({ game, myColor, interactive, pendingMove, onMove }: BoardProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const size = clampBoardSize(game.boardSize);
@@ -229,6 +230,72 @@ export function Board({ game, myColor, interactive, pendingMove, onMove }: Board
   const cursorY = PAD + cursorClamped.row * CELL;
   const ghostColor = myColor === 'white' ? 'rgba(248, 250, 252, 0.62)' : 'rgba(16, 20, 26, 0.55)';
 
+  // 静态网格/坐标/星位与棋子分层缓存：悬停、光标、音频等状态变化时不重复构建 200+ 个节点
+  const gridLayer = useMemo(() => {
+    const end = PAD + (size - 1) * CELL;
+    return Array.from({ length: size }, (_, index) => {
+      const pos = PAD + index * CELL;
+      return (
+        <g key={`grid-${index}`}>
+          <line className="board-line" x1={PAD} y1={pos} x2={end} y2={pos} />
+          <line className="board-line" x1={pos} y1={PAD} x2={pos} y2={end} />
+        </g>
+      );
+    });
+  }, [size]);
+
+  const coordLayer = useMemo(
+    () =>
+      Array.from({ length: size }, (_, index) => (
+        <g key={`coord-${index}`} className="board-coord">
+          <text x={PAD + index * CELL} y={PAD - 17} textAnchor="middle">
+            {String.fromCharCode(65 + index)}
+          </text>
+          <text x={PAD - 18} y={PAD + index * CELL + 4} textAnchor="middle">
+            {index + 1}
+          </text>
+        </g>
+      )),
+    [size],
+  );
+
+  const starLayer = useMemo(
+    () =>
+      stars.map((point) => (
+        <circle
+          key={`star-${point.row}-${point.col}`}
+          className="board-star"
+          cx={PAD + point.col * CELL}
+          cy={PAD + point.row * CELL}
+          r={3.4}
+        />
+      )),
+    [stars],
+  );
+
+  const stoneLayer = useMemo(
+    () =>
+      Array.from({ length: size }, (_, row) =>
+        Array.from({ length: size }, (_, col) => {
+          const color = stoneColorAt(board, row, col);
+          if (!color) return null;
+          const cx = PAD + col * CELL;
+          const cy = PAD + row * CELL;
+          const isLast = game.lastMove?.row === row && game.lastMove?.col === col;
+          return (
+            <g
+              key={`stone-${row}-${col}`}
+              className={`stone-group${isLast ? ' is-last' : ''}`}
+              filter="url(#stone-shadow)"
+            >
+              <StoneShape color={color} cx={cx} cy={cy} />
+            </g>
+          );
+        }),
+      ),
+    [size, board, game.lastMove],
+  );
+
   return (
     <div
       className={`board-frame${focused ? ' is-focused' : ''}${interactive ? ' is-interactive' : ''}`}
@@ -285,38 +352,9 @@ export function Board({ game, myColor, interactive, pendingMove, onMove }: Board
           </defs>
 
           {/* 木纹由 .board-surface 的 CSS 渐变提供，这里只画线与星位 */}
-          {Array.from({ length: size }, (_, index) => {
-            const pos = PAD + index * CELL;
-            const end = PAD + (size - 1) * CELL;
-            return (
-              <g key={`grid-${index}`}>
-                <line className="board-line" x1={PAD} y1={pos} x2={end} y2={pos} />
-                <line className="board-line" x1={pos} y1={PAD} x2={pos} y2={end} />
-              </g>
-            );
-          })}
-
-          {/* 坐标：列 A–O，行 1–15 */}
-          {Array.from({ length: size }, (_, index) => (
-            <g key={`coord-${index}`} className="board-coord">
-              <text x={PAD + index * CELL} y={PAD - 17} textAnchor="middle">
-                {String.fromCharCode(65 + index)}
-              </text>
-              <text x={PAD - 18} y={PAD + index * CELL + 4} textAnchor="middle">
-                {index + 1}
-              </text>
-            </g>
-          ))}
-
-          {stars.map((point) => (
-            <circle
-              key={`star-${point.row}-${point.col}`}
-              className="board-star"
-              cx={PAD + point.col * CELL}
-              cy={PAD + point.row * CELL}
-              r={3.4}
-            />
-          ))}
+          {gridLayer}
+          {coordLayer}
+          {starLayer}
 
           {winStart && winEnd && winLine.length >= 2 ? (
             <line
@@ -329,24 +367,7 @@ export function Board({ game, myColor, interactive, pendingMove, onMove }: Board
           ) : null}
 
           {/* 棋子（最后一手带落下动画） */}
-          {Array.from({ length: size }, (_, row) =>
-            Array.from({ length: size }, (_, col) => {
-              const color = stoneColorAt(board, row, col);
-              if (!color) return null;
-              const cx = PAD + col * CELL;
-              const cy = PAD + row * CELL;
-              const isLast = game.lastMove?.row === row && game.lastMove?.col === col;
-              return (
-                <g
-                  key={`stone-${row}-${col}`}
-                  className={`stone-group${isLast ? ' is-last' : ''}`}
-                  filter="url(#stone-shadow)"
-                >
-                  <StoneShape color={color} cx={cx} cy={cy} />
-                </g>
-              );
-            }),
-          )}
+          {stoneLayer}
 
           {/* 乐观落子：点击后立即出现半透明棋子，不等服务端广播 */}
           {pendingMove &&
@@ -429,3 +450,6 @@ export function Board({ game, myColor, interactive, pendingMove, onMove }: Board
     </div>
   );
 }
+
+export const Board = memo(BoardComponent);
+Board.displayName = 'Board';
