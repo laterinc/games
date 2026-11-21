@@ -198,7 +198,7 @@ function drawPiece(
   ctx.restore();
 }
 
-/** 上一步起点：虚线棋子轮廓 + 淡淡的原棋子字。 */
+/** 上一步起点：轻底 + 金色虚线棋子轮廓 + 半透明原棋子字。 */
 function drawGhostPiece(
   ctx: CanvasRenderingContext2D,
   piece: string,
@@ -208,20 +208,56 @@ function drawGhostPiece(
   const color = pieceColor(piece);
   const glyph = PIECE_GLYPH[piece] ?? piece;
   const fontSize = Math.round(CELL * 0.48);
+  const radius = PIECE_RADIUS - 1;
   ctx.save();
-  ctx.globalAlpha = 0.34;
-  ctx.setLineDash([6, 5]);
-  ctx.lineWidth = 1.8;
-  ctx.strokeStyle = 'rgba(233, 180, 95, 0.8)';
+
+  // 很轻的棋子底，让残影“有形”但不会像真棋子
+  const fill = ctx.createRadialGradient(
+    cx - radius * 0.35,
+    cy - radius * 0.4,
+    radius * 0.1,
+    cx,
+    cy,
+    radius,
+  );
+  fill.addColorStop(0, 'rgba(255, 246, 226, 0.18)');
+  fill.addColorStop(1, 'rgba(233, 180, 95, 0.04)');
+  ctx.fillStyle = fill;
   ctx.beginPath();
-  ctx.arc(cx, cy, PIECE_RADIUS - 2, 0, Math.PI * 2);
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 外圈：加粗金色虚线 + 柔光
+  ctx.globalAlpha = 0.92;
+  ctx.setLineDash([7, 5]);
+  ctx.lineWidth = 2.4;
+  ctx.strokeStyle = 'rgba(244, 207, 148, 0.95)';
+  ctx.shadowColor = 'rgba(233, 180, 95, 0.5)';
+  ctx.shadowBlur = 9;
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.shadowColor = 'transparent';
+  ctx.setLineDash([]);
+
+  // 内圈：细虚线增加层次
+  ctx.globalAlpha = 0.35;
+  ctx.setLineDash([3, 5]);
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255, 241, 214, 0.8)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, radius - 7, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.fillStyle = color === 'red' ? 'rgba(165, 39, 26, 0.85)' : 'rgba(32, 38, 45, 0.8)';
+  // 原棋子字：保留可辨识度，但仍是半透明
+  ctx.globalAlpha = 0.72;
+  ctx.fillStyle = color === 'red' ? 'rgba(165, 39, 26, 0.92)' : 'rgba(32, 38, 45, 0.9)';
   ctx.font = `700 ${fontSize}px "STKaiti", "KaiTi", "Songti SC", serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
+  ctx.shadowBlur = 2;
   const metrics = ctx.measureText(glyph);
   const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.88;
   const descent = metrics.actualBoundingBoxDescent || fontSize * 0.12;
@@ -371,9 +407,11 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
       }
 
       ctx.save();
-      ctx.setLineDash([6, 5]);
-      ctx.lineWidth = 2.4;
-      ctx.strokeStyle = 'rgba(233, 180, 95, 0.85)';
+      ctx.setLineDash([7, 5]);
+      ctx.lineWidth = 2.6;
+      ctx.strokeStyle = 'rgba(244, 207, 148, 0.95)';
+      ctx.shadowColor = 'rgba(233, 180, 95, 0.5)';
+      ctx.shadowBlur = 9;
       ctx.beginPath();
       ctx.arc(toX, toY, PIECE_RADIUS + 4, 0, Math.PI * 2);
       ctx.stroke();
