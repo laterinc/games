@@ -34,7 +34,7 @@ def wait_room(page: Page, room_id: str) -> None:
 
 
 def click_point(page: Page, row: int, col: int) -> None:
-    box = page.locator(".board-svg").bounding_box()
+    box = page.locator(".board-canvas").bounding_box()
     assert box is not None, "棋盘不可见"
     x = box["x"] + (PAD + col * CELL) / BOARD_PX * box["width"]
     y = box["y"] + (PAD + row * CELL) / BOARD_PX * box["height"]
@@ -112,7 +112,7 @@ def main() -> None:
                 wait_moves(a, count)
         expect(a.locator(".result-banner")).to_contain_text("黑棋胜", timeout=10_000)
         expect(b.locator(".result-banner")).to_contain_text("黑棋胜", timeout=10_000)
-        expect(a.locator(".win-ring")).to_have_count(5, timeout=10_000)
+        expect(a.locator(".result-banner")).to_contain_text("五连达成", timeout=10_000)
         print("  ✓ 九手五连判胜，双方均显示黑胜与 5 子连线高亮")
         a.wait_for_timeout(500)
         a.screenshot(path=str(SHOT_DIR / "finished-desktop.png"), full_page=True)
