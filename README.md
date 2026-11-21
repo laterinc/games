@@ -251,6 +251,41 @@ location /gomoku/ws   {
 
 > 后端镜像不包含 Node，也不构建前端；前后端可独立构建、独立部署。
 
+### Cloudflare Workers（前端静态资源）
+
+仓库内 `web/wrangler.jsonc` 已按「静态资源模式」配置：`web/dist` 直接作为 Worker
+assets，SPA 路由由 `not_found_handling: single-page-application` 兜底。
+Workers Builds 建议设置：
+
+| 配置项 | 值 |
+| --- | --- |
+| Root directory | `web` |
+| Build command | `npm run build` |
+| Deploy command | `npx wrangler deploy` |
+| Node version | `22`（`web/.nvmrc` 已指定，`package.json` engines `>=20`） |
+
+构建环境变量（Cloudflare 项目 Settings → Variables and Secrets，勾选 Build）：
+
+```ini
+VITE_BASE_PATH=/                      # Worker 部署在域名根时
+VITE_API_BASE=https://<后端域名>       # 不含末尾 /api
+VITE_WS_URL=wss://<后端域名>/ws
+```
+
+注意事项：
+
+- Worker 只托管静态资源，**不会**把 `/api`、`/ws` 代理到 Python；必须通过上面的
+  `VITE_API_BASE` / `VITE_WS_URL` 指到后端；
+- 后端需要允许 Worker 域名：`CORS_ORIGINS=https://<worker域名>`、
+  `ALLOWED_ORIGINS=https://<worker域名>`；WebSocket 必须用 `wss://`；
+- 若前端部署在**子路径**（如 `https://example.com/gomoku/`），把
+  `VITE_BASE_PATH` 设为 `/gomoku/`，并相应调整 `VITE_API_BASE` / `VITE_WS_URL`；
+- **改了 `package.json` 的依赖必须同步提交 `package-lock.json`**：Workers 用
+  `npm ci` 安装，锁文件不同步会直接报
+  `EUSAGE ... Missing: xxx from lock file`。改完执行
+  `cd web && npm install && git add package-lock.json package.json`。
+  仓库已加 GitHub Actions（`.github/workflows/web-ci.yml`）提前检查锁文件与构建。
+
 ## 配置（环境变量）
 
 后端变量：复制 `.env.example` 为 `.env`（`scripts/start.sh` 会读取；Docker 用 compose 的 `environment`）。

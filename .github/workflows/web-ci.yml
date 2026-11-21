@@ -1,0 +1,29 @@
+name: web-ci
+
+on:
+  push:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-ci.yml'
+  pull_request:
+    paths:
+      - 'web/**'
+      - '.github/workflows/web-ci.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # npm ci 会校验 package.json 与 package-lock.json 是否同步；
+      # 改了依赖却忘记提交 lock 文件时，这里会提前失败，而不是等到 Cloudflare 构建。
+      - run: npm ci
+      - run: npm run build
