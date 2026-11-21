@@ -36,9 +36,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-#: 同一玩家被新连接顶替时关闭旧连接的关闭码
-_CLOSE_REPLACED = 4001
-
 #: 身份 Cookie：保存 playerId.token，浏览器刷新/重开时用于恢复同一玩家
 _SESSION_COOKIE = "gomoku_session"
 _COOKIE_MAX_AGE = 30 * 24 * 3600
@@ -77,37 +74,44 @@ class ClientConnection:
 
 
 class ConnectionHub:
-    """playerId → 活动连接注册表；实现 rooms.ConnectionHub 协议。"""
+    """playerId → 活动连接集合。
+
+    同一 playerId 允许同时存在多个连接（多标签页/多窗口）：消息广播到该玩家的所有
+    连接，最后一个连接断开时才把玩家标记为离线。这样多开标签页不会再互相顶号，
+    也就不会出现「新连接踢掉旧连接 → 旧连接自动重连 → 再踢新连接」的死循环。
+    """
 
     def __init__(self) -> None:
-        self._connections: dict[str, ClientConnection] = {}
+        self._connections: dict[str, set[ClientConnection]] = {}
 
     def register(self, connection: ClientConnection) -> None:
-        self._connections[connection.player_id] = connection
+        self._connections.setdefault(connection.player_id, set()).add(connection)
 
     def unregister(self, connection: ClientConnection) -> bool:
-        """仅当注册表仍指向该连接时移除；返回是否为当前连接。"""
-        if self._connections.get(connection.player_id) is connection:
-            del self._connections[connection.player_id]
-            return True
-        return False
+        """移除连接；返回该玩家是否已经没有其它活动连接。"""
+        connections = self._connections.get(connection.player_id)
+        if not connections or connection not in connections:
+            return False
+        connections.discard(connection)
+        if connections:
+            return False
+        self._connections.pop(connection.player_id, None)
+        return True
 
-    def rebind(self, connection: ClientConnection, player_id: str) -> ClientConnection | None:
-        """把连接绑定到（恢复的）玩家身份；返回被顶替的旧连接。"""
-        replaced = self._connections.get(player_id)
-        if connection.player_id in self._connections and (
-            self._connections[connection.player_id] is connection
-        ):
-            del self._connections[connection.player_id]
-        connection.player_id = player_id
-        self._connections[player_id] = connection
-        if replaced is connection:
-            return None
-        return replaced
+    def rebind(self, connection: ClientConnection, player_id: str) -> None:
+        """把连接绑定到（恢复的）玩家身份，不关闭该玩家已有的其它连接。"""
+        previous = connection.player_id
+        if previous != player_id:
+            old_connections = self._connections.get(previous)
+            if old_connections is not None:
+                old_connections.discard(connection)
+                if not old_connections:
+                    self._connections.pop(previous, None)
+            connection.player_id = player_id
+        self._connections.setdefault(player_id, set()).add(connection)
 
     async def send_to_player(self, player_id: str, message: dict[str, Any]) -> None:
-        connection = self._connections.get(player_id)
-        if connection is not None:
+        for connection in list(self._connections.get(player_id, ())):
             await connection.send(message)
 
     def online_player_ids(self) -> list[str]:
@@ -115,7 +119,7 @@ class ConnectionHub:
 
     @property
     def connection_count(self) -> int:
-        return len(self._connections)
+        return sum(len(connections) for connections in self._connections.values())
 
 
 def _cookie_is_secure(websocket: WebSocket) -> bool:
@@ -227,14 +231,9 @@ class MessageDispatcher:
             raise ProtocolError(ErrorCode.AUTH_FAILED)
 
         previous_player_id = connection.player_id
-        replaced = self._hub.rebind(connection, player.id)
+        self._hub.rebind(connection, player.id)
         if previous_player_id != player.id:
             self._manager.discard_player(previous_player_id)
-        if replaced is not None and replaced is not connection:
-            try:
-                await replaced.ws.close(code=_CLOSE_REPLACED)
-            except Exception:  # noqa: BLE001 - 旧连接已断
-                logger.debug("关闭被顶替的旧连接失败", exc_info=True)
 
         await self._manager.mark_connected(player.id)
         await connection.send(_welcome_message(player, reconnected=True))
@@ -302,12 +301,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept(headers=[(b"set-cookie", cookie_header)])
 
     connection = ClientConnection(websocket, player.id)
-    replaced = hub.rebind(connection, player.id)
-    if replaced is not None and replaced is not connection:
-        try:
-            await replaced.ws.close(code=_CLOSE_REPLACED)
-        except Exception:  # noqa: BLE001 - 旧连接已断
-            logger.debug("关闭被顶替的旧连接失败", exc_info=True)
+    hub.rebind(connection, player.id)
 
     try:
         if restored is not None:
@@ -336,6 +330,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             await dispatcher.handle(connection, raw)
     except WebSocketDisconnect:
         pass
+    except RuntimeError as exc:
+        # Starlette 在连接已被关闭时 receive_text 会抛 RuntimeError（例如客户端断开瞬间）
+        logger.debug("WebSocket 已关闭：%s", exc)
     except Exception:  # noqa: BLE001 - 单个连接异常不影响服务
         logger.exception("WebSocket 连接异常")
     finally:

@@ -684,3 +684,30 @@ def test_handshake_cookie_restores_player() -> None:
             fresh = _welcome(ws)
             assert fresh["playerId"] != welcome["playerId"]
             assert fresh["reconnected"] is False
+
+
+def test_multiple_tabs_same_player_do_not_kick_each_other() -> None:
+    """同一 playerId 允许多个连接（多标签页），广播到全部连接，不再互相顶号。"""
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as tab1:
+            first = _welcome(tab1)
+            cookie = f"gomoku_session={first['playerId']}.{first['token']}"
+
+            with client.websocket_connect("/ws", headers={"cookie": cookie}) as tab2:
+                second = _welcome(tab2, reconnected=True)
+                assert second["playerId"] == first["playerId"]
+
+                # 两个标签页都能收到同一个玩家身份的广播
+                tab1.send_json({"type": "create_room", "name": "小明"})
+                room1 = _read_room(tab1)
+                room2 = _read_room(tab2)
+                assert room1["id"] == room2["id"]
+
+                # 一个标签页离开，另一个仍保持连接且能继续操作
+                tab2.send_json({"type": "leave_room"})
+                assert tab2.receive_json()["room"] is None
+                assert tab1.receive_json()["room"] is None
+
+                tab1.send_json({"type": "create_room", "name": "小明"})
+                assert _read_room(tab1)["status"] == "waiting"

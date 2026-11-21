@@ -14,6 +14,9 @@
 - 身份 Cookie：服务端在 WebSocket 握手响应里下发 `gomoku_session`（`playerId.token`，
   HttpOnly、30 天）。浏览器刷新/重开后即使 localStorage 丢失，服务端也会按 Cookie
   恢复同一个玩家（座位/昵称/所在房间不变），并回 `welcome.reconnected=true`。
+- 多连接：同一 `playerId` 允许同时存在多个 WebSocket 连接（多标签页/多窗口），
+  `room` 等广播会发送到该玩家的所有连接，**不会互相顶号断开**；只有最后一个连接
+  断开时服务端才把玩家标记为掉线。
 - 限流：单个连接 5 秒内最多 40 条消息，超出回 `RATE_LIMITED` 错误并计入，严重可断开。
 
 ## 2. 服务端 → 客户端消息

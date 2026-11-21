@@ -11,6 +11,7 @@ const STATUS_TEXT: Record<SocketStatus, string> = {
   open: '已连接',
   reconnecting: '连接已断开，正在重连…',
   closed: '连接已关闭',
+  replaced: '该身份已在其他窗口建立连接，本页已暂停同步（刷新页面可重新接管）',
 };
 
 function readRoomCodeFromUrl(): string {

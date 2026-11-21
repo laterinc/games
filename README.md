@@ -31,7 +31,7 @@ cd gomoku
 | 房间 | 双方准备开局、房主标识、复制房间码/邀请链接、离开房间、对手离开判负并重置等待新对手 |
 | 观战 | 满房/开局后第三人可只读观战（不占座），同步棋盘与聊天，可随时退出 |
 | 社交 | 房间内聊天（玩家与观战者，保留最近 50 条、长度限制、频率限制） |
-| 稳定性 | 断线自动重连、会话恢复（localStorage token + 握手 Cookie）、掉线 60s 宽限、心跳保活、消息限流 |
+| 稳定性 | 断线自动重连、会话恢复（localStorage token + 握手 Cookie）、多标签页不互相顶号、掉线 60s 宽限、心跳保活、消息限流 |
 
 ## 界面预览
 
@@ -356,7 +356,7 @@ docker build -f Dockerfile.web -t gomoku-web \
 ## 测试
 
 ```bash
-# 1) 后端单元 + WebSocket 集成测试（51 个用例）
+# 1) 后端单元 + WebSocket 集成测试（52 个用例）
 cd server && .venv/bin/python -m pytest -q
 
 # 2) 端到端：先启动后端（./scripts/start.sh），真实 WS 双人对局 + 观战 + Cookie 恢复
@@ -402,6 +402,8 @@ python3 -m venv /tmp/pwenv && /tmp/pwenv/bin/pip install playwright
 - **身份与重连**：握手时下发 `gomoku_session` Cookie（`playerId.token`，HttpOnly 30 天），
   刷新/重开浏览器时即使 localStorage 丢失也能认回同一玩家；`welcome` 同时下发
   `playerId` + `token`，页面重连会带上 `hello`。掉线 60s 内座位保留，对手界面显示掉线状态。
+- **多标签页**：服务端按 `playerId` 维护连接集合，广播发给所有连接；只有最后一个连接
+  断开才标记离线。多开窗口不会再出现「互相踢下线 → 自动重连 → 再踢」的死循环。
 - **观战**：观战者不占座、不进 `players`，只接收 `room` 快照与聊天；观战断开立即退出。
   前端在邀请链接里提供「观战」入口，满房/开局后的第三人不会被挡在大厅。
 - **安全**：昵称/房间名/聊天长度与空白校验、每连接消息限流、发送锁、

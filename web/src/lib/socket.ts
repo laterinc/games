@@ -11,7 +11,7 @@ import type { ClientMessage, ServerMessage } from '../types';
 import { parseServerMessage } from './protocol';
 import { clearSession, loadSession, saveSession } from './session';
 
-export type SocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
+export type SocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed' | 'replaced';
 
 type MessageListener = (message: ServerMessage) => void;
 type StatusListener = (status: SocketStatus) => void;
@@ -214,7 +214,7 @@ export class GameSocket {
       if (typeof event.data !== 'string') return;
       this.handleRawMessage(event.data);
     };
-    socket.onclose = () => {
+    socket.onclose = (event: CloseEvent) => {
       if (this.socket !== socket) return;
       this.socket = null;
       this.greeted = false;
@@ -223,6 +223,12 @@ export class GameSocket {
       this.stopPing();
       if (this.manualClose) {
         this.setStatus('closed');
+        return;
+      }
+      if (event.code === 4001) {
+        // 服务端明确表示身份被其它连接接管：不再自动重连，避免多标签页互相顶号死循环
+        this.manualClose = true;
+        this.setStatus('replaced');
         return;
       }
       this.setStatus('reconnecting');
