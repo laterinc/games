@@ -204,7 +204,7 @@ def main() -> None:
         expect(a.locator(".board-footer")).to_contain_text("你执白棋", timeout=10_000)
         print("  ✓ 清空 localStorage 后刷新，仍凭 Cookie 恢复同一玩家与座位")
 
-        # 中国象棋：切换游戏 → 人机对战 → 红兵前进 → 电脑应手
+        # 中国象棋：首页进入 → 人机对战 → 红兵前进 → 电脑应手
         c = browser.new_context(viewport={"width": 1360, "height": 1000}).new_page()
         c.on("console", lambda msg: errors.append(f"[C] console.{msg.type}: {msg.text}") if msg.type == "error" else None)
         c.on("pageerror", lambda exc: errors.append(f"[C] pageerror: {exc}"))
@@ -212,7 +212,7 @@ def main() -> None:
         c.get_by_role("button", name="进入中国象棋").click()
         c.wait_for_url(lambda url: url.rstrip("/").endswith("/chess"), timeout=10_000)
         c.locator('input[autocomplete="nickname"]').fill("象棋手")
-        expect(c.locator(".hero-title")).to_contain_text("中国象棋")
+        expect(c.locator(".lobby")).to_have_attribute("data-game", "chess")
         c.screenshot(path=str(SHOT_DIR / "chess-lobby.png"), full_page=True)
         c.get_by_role("button", name="人机对战").click()
         c.get_by_role("button", name="开始对局").click()
