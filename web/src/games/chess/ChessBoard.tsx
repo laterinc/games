@@ -328,10 +328,12 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
           ctx.arc(x, y, PIECE_RADIUS + 5, 0, Math.PI * 2);
           ctx.stroke();
         } else {
-          ctx.fillStyle = 'rgba(233, 180, 95, 0.55)';
+          // 空落点用空心圈标在交叉点上，避免小圆点被看成“偏半格”。
+          ctx.strokeStyle = 'rgba(233, 180, 95, 0.92)';
+          ctx.lineWidth = 2.4;
           ctx.beginPath();
-          ctx.arc(x, y, 6, 0, Math.PI * 2);
-          ctx.fill();
+          ctx.arc(x, y, 10, 0, Math.PI * 2);
+          ctx.stroke();
         }
       }
     }

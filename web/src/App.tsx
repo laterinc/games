@@ -168,7 +168,6 @@ export default function App() {
             rooms={state.rooms}
             connected={state.status === 'open'}
             gameType={gameType}
-            onSelectGame={(next) => navigate(lobbyPath(next))}
             initialRoomCode={initialRoomCode}
             onQuickMatch={() => actions.quickMatch(nickname, gameType)}
             onCreateRoom={(options) =>

@@ -13,7 +13,7 @@ import {
   MAX_ROOM_NAME_LENGTH,
   ROOM_STATUS_LABEL,
 } from '../lib/protocol';
-import { GAME_LABEL, GAME_LIST, GAMES } from '../games/registry';
+import { GAME_LABEL, GAMES } from '../games/registry';
 import { Modal } from './Modal';
 
 interface LobbyProps {
@@ -22,7 +22,6 @@ interface LobbyProps {
   rooms: RoomSummary[];
   connected: boolean;
   gameType: GameType;
-  onSelectGame: (gameType: GameType) => void;
   initialRoomCode: string;
   onQuickMatch: () => void;
   onCreateRoom: (options: {
@@ -129,7 +128,6 @@ export function Lobby({
   rooms,
   connected,
   gameType,
-  onSelectGame,
   initialRoomCode,
   onQuickMatch,
   onCreateRoom,
@@ -215,35 +213,6 @@ export function Lobby({
           </span>
           <h1 className="hero-title">开一局，马上开始</h1>
           <p className="hero-sub">{meta.description}</p>
-
-          <div className="game-switch-block">
-            <span className="game-switch-label">选择游戏</span>
-            <div className="game-switch" role="tablist" aria-label="选择游戏">
-              {GAME_LIST.map((game) => (
-                <button
-                  key={game.type}
-                  type="button"
-                  role="tab"
-                  aria-selected={gameType === game.type}
-                  className={`game-switch-item${gameType === game.type ? ' is-active' : ''}`}
-                  onClick={() => onSelectGame(game.type)}
-                >
-                  <span className={`game-switch-icon game-${game.type}`} aria-hidden="true">
-                    {game.icon}
-                  </span>
-                  <span className="game-switch-copy">
-                    <strong>{game.label}</strong>
-                    <small>{game.short}</small>
-                  </span>
-                  {gameType === game.type ? (
-                    <span className="game-switch-check" aria-hidden="true">
-                      ✓
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          </div>
 
           <div className="hero-tags" aria-hidden="true">
             {meta.tags.map((tag) => (
