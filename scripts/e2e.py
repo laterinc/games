@@ -167,6 +167,16 @@ async def main() -> None:
     await c2.room_where(lambda r: r["status"] == "playing", "白方看到开局")
     ok("双方准备后自动开局，空盘黑先")
 
+    # 第三人观战：满房/开局后不占座，只读同步
+    c3, w3 = await connect(ws_url, "观众")
+    await c3.send({"type": "watch_room", "roomId": room_id, "name": "观众甲"})
+    watched = await c3.room_where(lambda r: r["spectators"] == 1, "观战进入房间")
+    if any(p["id"] == w3["playerId"] for p in watched["players"]):
+        fail("观战者不应出现在玩家列表中", watched["players"])
+    await c1.room_where(lambda r: r["spectators"] == 1, "玩家看到观战人数")
+    await c2.room_where(lambda r: r["spectators"] == 1, "另一玩家看到观战人数")
+    ok("第三人在开局后以观战身份进入，不占座")
+
     # 黑方在 row=7 连成 col 3..7，白方在 row=0 陪跑 col 0..3
     black_plan = [(7, col) for col in range(3, 8)]
     white_plan = [(0, col) for col in range(0, 4)]
@@ -196,6 +206,25 @@ async def main() -> None:
     if game["winner"] != "black" or game["endedReason"] != "five" or len(game["winLine"] or []) < 5:
         fail("胜负判定错误", game)
     ok(f"黑方五连判胜，winLine {len(game['winLine'])} 子，endedReason=five")
+
+    # 观战者同步终局、不能落子、可以聊天、可以退出
+    await c3.room_where(lambda r: r["status"] == "finished", "观战者看到终局")
+    await c3.send({"type": "move", "row": 0, "col": 0})
+    await c3.expect_error("NOT_IN_ROOM", "观战者不能落子")
+    await c3.send({"type": "chat", "text": "精彩"})
+    for viewer, label in ((c1, "玩家A"), (c2, "玩家B"), (c3, "观战者")):
+        chat = await viewer.expect("chat", f"{label} 收到观战者聊天")
+        if chat["message"]["text"] != "精彩":
+            fail("观战者聊天内容错误", chat)
+    await c3.send({"type": "leave_room"})
+    await c3.wait(
+        lambda m: m.get("type") == "room" and m.get("room") is None,
+        "观战者退出后 room=null",
+    )
+    await c1.room_where(lambda r: r["spectators"] == 0, "退出后观战人数归零")
+    await c2.room_where(lambda r: r["spectators"] == 0, "另一玩家看到观战人数归零")
+    await c3.ws.close()
+    ok("观战同步终局/聊天，只读不可落子，退出后人数归零")
 
     # 再来一局：双方投票 → 交换黑白、清空棋盘
     await c1.send({"type": "rematch"})
@@ -241,6 +270,30 @@ async def main() -> None:
 
     await c1.ws.close()
     await c2b.ws.close()
+
+    # 握手 Cookie 身份恢复：模拟 localStorage 丢失后刷新，仍认回同一玩家
+    ws_cookie = await websockets.connect(ws_url, open_timeout=6)
+    cookie_client = Client(ws_cookie, "Cookie 会话")
+    cookie_welcome = await cookie_client.expect("welcome", "Cookie 会话 welcome")
+    set_cookie = ws_cookie.response.headers.get("set-cookie") or ""
+    if "gomoku_session=" not in set_cookie:
+        fail("握手未下发身份 Cookie", set_cookie)
+    cookie = set_cookie.split(";", 1)[0]
+    await ws_cookie.close()
+
+    ws_restored = await websockets.connect(
+        ws_url, open_timeout=6, additional_headers={"Cookie": cookie}
+    )
+    restored_client = Client(ws_restored, "Cookie 恢复")
+    restored_welcome = await restored_client.wait(
+        lambda m: m.get("type") == "welcome" and m.get("reconnected") is True,
+        "Cookie 恢复 welcome",
+    )
+    if restored_welcome["playerId"] != cookie_welcome["playerId"]:
+        fail("Cookie 未恢复同一 playerId", [cookie_welcome, restored_welcome])
+    await ws_restored.close()
+    ok("刷新/丢失 localStorage 时可通过握手 Cookie 认回同一玩家")
+
     print(f"\n== E2E PASS：{CHECKS} 项检查全部通过")
 
 

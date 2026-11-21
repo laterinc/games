@@ -65,6 +65,10 @@ export default function App() {
   }, [state.room]);
 
   const disconnected = state.status !== 'open';
+  const isSpectator =
+    state.room !== null &&
+    state.playerId !== null &&
+    !state.room.players.some((player) => player.id === state.playerId);
 
   return (
     <div className="app-shell">
@@ -99,6 +103,7 @@ export default function App() {
             room={state.room}
             status={state.status}
             playerId={state.playerId}
+            isSpectator={isSpectator}
             chat={state.chat}
             onMove={actions.move}
             onReady={actions.ready}
@@ -117,6 +122,7 @@ export default function App() {
             onQuickMatch={() => actions.quickMatch(nickname)}
             onCreateRoom={(options) => actions.createRoom({ name: nickname, ...options })}
             onJoinRoom={(roomId) => actions.joinRoom(roomId, nickname)}
+            onWatchRoom={(roomId) => actions.watchRoom(roomId, nickname)}
             onRefreshRooms={actions.refreshRooms}
             notify={actions.notify}
           />

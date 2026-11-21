@@ -21,6 +21,7 @@ interface LobbyProps {
     color: CreateColor;
   }) => void;
   onJoinRoom: (roomId: string) => void;
+  onWatchRoom: (roomId: string) => void;
   onRefreshRooms: () => void;
   notify: (text: string, level?: ToastLevel) => void;
 }
@@ -48,6 +49,7 @@ export function Lobby({
   onQuickMatch,
   onCreateRoom,
   onJoinRoom,
+  onWatchRoom,
   onRefreshRooms,
   notify,
 }: LobbyProps) {
@@ -203,6 +205,16 @@ export function Lobby({
                     >
                       {full ? '已满' : '加入'}
                     </button>
+                    {full || room.status !== 'waiting' ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-small"
+                        disabled={!connected}
+                        onClick={() => onWatchRoom(room.id)}
+                      >
+                        观战
+                      </button>
+                    ) : null}
                   </li>
                 );
               })}
@@ -238,12 +250,29 @@ export function Lobby({
             >
               加入
             </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={!canStart || normalizeRoomCode(joinCode).length !== 6}
+              onClick={() => {
+                const code = normalizeRoomCode(joinCode);
+                if (code.length !== 6) {
+                  setJoinError('请输入 6 位房间码');
+                  return;
+                }
+                setJoinError('');
+                onWatchRoom(code);
+              }}
+            >
+              观战
+            </button>
           </form>
           {joinError ? <p className="field-hint error">{joinError}</p> : null}
           <p className="join-hint">
             {initialRoomCode
               ? '已从邀请链接填入房间码，确认昵称后点击加入。'
               : '邀请链接会自动填好房间码。'}
+            满房或对局已开始时，可以点「观战」只读观看。
           </p>
         </div>
       </div>

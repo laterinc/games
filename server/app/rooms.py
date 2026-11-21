@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 _ROOM_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _ROOM_ID_LENGTH = 6
 _CHAT_ID_PREFIX = "m_"
+#: 单个房间最多观战人数（防止被当成聊天室滥用）
+MAX_SPECTATORS = 20
 
 
 class ConnectionHub(Protocol):
@@ -96,6 +98,7 @@ class Room:
     board_size: int
     status: str = "waiting"
     players: list[Player] = field(default_factory=list)
+    spectators: list[Player] = field(default_factory=list)
     board: game.Board = field(default_factory=list)
     current_turn: str = "black"
     last_move: Move | None = None
@@ -144,6 +147,7 @@ class RoomManager:
         self._players: dict[str, Player] = {}
         self._rooms: dict[str, Room] = {}
         self._player_room: dict[str, str] = {}
+        self._spectator_room: dict[str, str] = {}
         self._disconnect_tasks: dict[str, asyncio.Task[None]] = {}
 
     # ------------------------------------------------------------------
@@ -168,9 +172,22 @@ class RoomManager:
             return None
         return player
 
+    def session_cookie_value(self, player: Player) -> str:
+        """WS 握手 Cookie 中保存的身份值：playerId.token。"""
+        return f"{player.id}.{player.token}"
+
+    def authenticate_cookie(self, value: str | None) -> Player | None:
+        """从握手 Cookie 恢复身份；无效返回 None。"""
+        if not value:
+            return None
+        player_id, sep, token = value.partition(".")
+        if not sep:
+            return None
+        return self.authenticate(player_id, token)
+
     def discard_player(self, player_id: str) -> None:
         """丢弃未被使用的匿名身份（hello 成功后清掉临时身份）。"""
-        if player_id in self._player_room:
+        if player_id in self._player_room or player_id in self._spectator_room:
             return
         self._players.pop(player_id, None)
 
@@ -280,8 +297,15 @@ class RoomManager:
 
     async def join_room(self, player_id: str, *, room_id: str, name: str) -> Room:
         async with self._lock:
-            self._ensure_not_in_room(player_id)
             room = self._rooms.get(room_id)
+            if player_id in self._player_room:
+                if self._player_room[player_id] == room_id and room is not None:
+                    # 幂等：已经在目标房间（常见于刷新后 UI 误点「加入」），直接回快照
+                    await self._broadcast_room(room)
+                    return room
+                raise ProtocolError(ErrorCode.ALREADY_IN_ROOM)
+            if player_id in self._spectator_room:
+                raise ProtocolError(ErrorCode.ALREADY_IN_ROOM)
             if room is None:
                 raise ProtocolError(ErrorCode.ROOM_NOT_FOUND)
             self._join_room_locked(room, player_id, name)
@@ -406,16 +430,62 @@ class RoomManager:
             await self._broadcast_room(room)
             return room
 
+    async def watch_room(self, player_id: str, *, room_id: str, name: str) -> Room:
+        """以观战者身份进入房间（不占座），可看棋盘与聊天。"""
+        async with self._lock:
+            if player_id in self._player_room:
+                raise ProtocolError(ErrorCode.ALREADY_IN_ROOM)
+            room = self._rooms.get(room_id)
+            if room is None:
+                raise ProtocolError(ErrorCode.ROOM_NOT_FOUND)
+            current = self._spectator_room.get(player_id)
+            if current == room_id:
+                await self._broadcast_room(room)
+                return room
+            if current is not None:
+                raise ProtocolError(ErrorCode.ALREADY_IN_ROOM)
+            if len(room.spectators) >= MAX_SPECTATORS:
+                raise ProtocolError(ErrorCode.ROOM_FULL, "观战人数已满")
+            player = self._require_player(player_id)
+            player.name = name
+            room.spectators.append(player)
+            self._spectator_room[player_id] = room.id
+            room.updated_at = now_ms()
+            await self._broadcast_room(room)
+            return room
+
+    async def remove_spectator(self, player_id: str, *, notify: bool = True) -> bool:
+        async with self._lock:
+            room_id = self._spectator_room.pop(player_id, None)
+            if room_id is None:
+                return False
+            room = self._rooms.get(room_id)
+            if room is not None:
+                room.spectators = [p for p in room.spectators if p.id != player_id]
+                room.updated_at = now_ms()
+                await self._broadcast_room(room)
+        if notify:
+            await self._hub.send_to_player(player_id, {"type": "room", "room": None})
+        return True
+
     async def leave_room(self, player_id: str) -> None:
         async with self._lock:
-            if player_id not in self._player_room:
+            if player_id in self._player_room:
+                await self._leave_locked(player_id, exclude={player_id})
+            elif player_id in self._spectator_room:
+                room_id = self._spectator_room.pop(player_id)
+                room = self._rooms.get(room_id)
+                if room is not None:
+                    room.spectators = [p for p in room.spectators if p.id != player_id]
+                    room.updated_at = now_ms()
+                    await self._broadcast_room(room)
+            else:
                 raise ProtocolError(ErrorCode.NOT_IN_ROOM)
-            await self._leave_locked(player_id, exclude={player_id})
         await self._hub.send_to_player(player_id, {"type": "room", "room": None})
 
     async def chat(self, player_id: str, *, text: str) -> Room:
         async with self._lock:
-            room = self._require_room(player_id)
+            room = self._member_room(player_id)
             player = self._require_player(player_id)
             now = now_ms()
             room.chat_seq += 1
@@ -431,7 +501,7 @@ class RoomManager:
                 room.chat = room.chat[-protocol.CHAT_HISTORY_LIMIT:]
             room.updated_at = now
             message = {"type": "chat", "message": entry.to_dict()}
-            for member in room.players:
+            for member in [*room.players, *room.spectators]:
                 await self._hub.send_to_player(member.id, message)
             return room
 
@@ -450,13 +520,16 @@ class RoomManager:
         return [self._room_summary(room) for room in rooms]
 
     def room_snapshot_for(self, player_id: str) -> dict[str, Any] | None:
-        room = self._room_of(player_id)
+        room = self._member_room_or_none(player_id)
         if room is None:
             return None
         return self._room_snapshot(room)
 
     def room_of(self, player_id: str) -> Room | None:
         return self._room_of(player_id)
+
+    def is_spectator(self, player_id: str) -> bool:
+        return player_id in self._spectator_room
 
     @property
     def room_count(self) -> int:
@@ -479,6 +552,10 @@ class RoomManager:
                     self._player_room.pop(player.id, None)
                     self._cancel_disconnect_task(player.id)
                     await self._hub.send_to_player(player.id, {"type": "room", "room": None})
+                for spectator in room.spectators:
+                    self._spectator_room.pop(spectator.id, None)
+                    await self._hub.send_to_player(spectator.id, {"type": "room", "room": None})
+                room.spectators = []
             if expired:
                 logger.info("回收 %d 个空闲 waiting 房间", len(expired))
                 await self._push_lobby()
@@ -516,8 +593,13 @@ class RoomManager:
         opponent = room.players[0] if room.players else None
 
         if opponent is None:
-            # 房间无人：销毁，并清掉残留映射
+            # 房间无人：销毁，并通知观战者/清掉残留映射
             del self._rooms[room.id]
+            spectators = room.spectators
+            room.spectators = []
+            for spectator in spectators:
+                self._spectator_room.pop(spectator.id, None)
+                await self._hub.send_to_player(spectator.id, {"type": "room", "room": None})
             await self._push_lobby(exclude=exclude)
             return
 
@@ -588,6 +670,21 @@ class RoomManager:
             return None
         return self._rooms.get(room_id)
 
+    def _member_room_or_none(self, player_id: str) -> Room | None:
+        room = self._room_of(player_id)
+        if room is not None:
+            return room
+        room_id = self._spectator_room.get(player_id)
+        if room_id is None:
+            return None
+        return self._rooms.get(room_id)
+
+    def _member_room(self, player_id: str) -> Room:
+        room = self._member_room_or_none(player_id)
+        if room is None:
+            raise ProtocolError(ErrorCode.NOT_IN_ROOM)
+        return room
+
     def _require_room(self, player_id: str) -> Room:
         room = self._room_of(player_id)
         if room is None:
@@ -601,7 +698,7 @@ class RoomManager:
         return player
 
     def _ensure_not_in_room(self, player_id: str) -> None:
-        if player_id in self._player_room:
+        if player_id in self._player_room or player_id in self._spectator_room:
             raise ProtocolError(ErrorCode.ALREADY_IN_ROOM)
 
     def _generate_room_id(self) -> str:
@@ -635,7 +732,7 @@ class RoomManager:
                 player.snapshot(is_host=player.id == room.host_id)
                 for player in room.ordered_players()
             ],
-            "spectators": 0,
+            "spectators": len(room.spectators),
             "rematchVotes": list(room.rematch_votes),
             "game": {
                 "boardSize": room.board_size,
@@ -659,7 +756,7 @@ class RoomManager:
     async def _broadcast_room(self, room: Room, *, exclude: set[str] | None = None) -> None:
         message = {"type": "room", "room": self._room_snapshot(room)}
         excluded = exclude or set()
-        for player in room.players:
+        for player in [*room.players, *room.spectators]:
             if player.id in excluded:
                 continue
             await self._hub.send_to_player(player.id, message)
@@ -668,6 +765,8 @@ class RoomManager:
         message = {"type": "rooms", "rooms": self.rooms_snapshot()}
         excluded = exclude or set()
         for player_id in self._hub.online_player_ids():
-            if player_id in self._player_room or player_id in excluded:
+            if player_id in self._player_room or player_id in self._spectator_room:
+                continue
+            if player_id in excluded:
                 continue
             await self._hub.send_to_player(player_id, message)

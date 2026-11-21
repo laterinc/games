@@ -12,6 +12,7 @@ import type {
   JoinRoomPayload,
   QuickMatchPayload,
   Room,
+  WatchRoomPayload,
   RoomSummary,
   RoomVisibility,
   ServerMessage,
@@ -100,6 +101,7 @@ export interface GameActions {
     color: CreateColor;
   }) => void;
   joinRoom: (roomId: string, name: string) => void;
+  watchRoom: (roomId: string, name: string) => void;
   quickMatch: (name: string) => void;
   refreshRooms: () => void;
   ready: () => void;
@@ -294,6 +296,21 @@ export function useGameSocket(): UseGameSocketResult {
       send(payload);
     };
 
+    const watchRoom = (roomId: string, name: string): void => {
+      const code = roomId.trim().toUpperCase();
+      if (!isValidRoomCode(code)) {
+        pushToast('error', '请输入 6 位房间码');
+        return;
+      }
+      const trimmedName = name.trim();
+      if (!isValidNickname(trimmedName)) {
+        pushToast('error', `昵称需为 1–${MAX_NICKNAME_LENGTH} 个字符`);
+        return;
+      }
+      const payload: WatchRoomPayload = { type: 'watch_room', roomId: code, name: trimmedName };
+      send(payload);
+    };
+
     const quickMatch = (name: string): void => {
       const trimmedName = name.trim();
       if (!isValidNickname(trimmedName)) {
@@ -350,6 +367,7 @@ export function useGameSocket(): UseGameSocketResult {
     return {
       createRoom,
       joinRoom,
+      watchRoom,
       quickMatch,
       refreshRooms,
       ready,

@@ -134,13 +134,40 @@ def main() -> None:
             wait_moves(b, index)
         a.wait_for_timeout(400)
         a.screenshot(path=str(SHOT_DIR / "midgame-desktop.png"), full_page=True)
+        print("  ✓ 对局页渲染（截图见 /tmp/gomoku-ui）")
 
-        # 聊天双向同步
+        # 第三人观战：通过 ?room= 进入，点「观战」，只读看棋
+        spectator_ctx = browser.new_context()
+        spectator = spectator_ctx.new_page()
+        spectator.goto(f"{base}/?room={room_id}", wait_until="networkidle")
+        spectator.locator('input[autocomplete="nickname"]').fill("观众")
+        expect(spectator.locator('input[aria-label="6 位房间码"]')).to_have_value(
+            room_id, timeout=5_000
+        )
+        spectator.get_by_role("button", name="观战", exact=True).click()
+        wait_room(spectator, room_id)
+        expect(spectator.locator(".badge-spectator")).to_be_visible(timeout=10_000)
+        expect(spectator.locator('[role="application"]')).to_have_attribute(
+            "aria-disabled", "true"
+        )
+        expect(spectator.locator(".board-footer")).to_contain_text("观战中", timeout=10_000)
+        expect(a.locator(".spectator-count")).to_contain_text("1 人正在观战", timeout=10_000)
+        print("  ✓ 第三人观战进入，只读棋盘，玩家界面显示观战人数")
+
+        # 聊天双向同步（观战者也能看到）
         a.locator('input[aria-label="聊天内容"]').fill("好棋！")
         a.locator('input[aria-label="聊天内容"]').press("Enter")
         expect(b.locator(".chat-list")).to_contain_text("好棋！", timeout=10_000)
         expect(a.locator(".chat-list")).to_contain_text("好棋！", timeout=10_000)
-        print("  ✓ 房间聊天实时同步")
+        expect(spectator.locator(".chat-list")).to_contain_text("好棋！", timeout=10_000)
+        print("  ✓ 房间聊天实时同步（含观战者）")
+
+        # 观战者退出：不占座，玩家侧观战人数归零
+        spectator.get_by_role("button", name="退出观战").first.click()
+        expect(spectator.locator(".room-view")).to_have_count(0, timeout=10_000)
+        expect(a.locator(".spectator-count")).to_have_count(0, timeout=10_000)
+        spectator_ctx.close()
+        print("  ✓ 退出观战后不影响对局，观战人数归零")
 
         # 移动端视图（复用白方页面，避免同 session 双开互相顶号）
         b.set_viewport_size({"width": 390, "height": 844})
@@ -154,6 +181,13 @@ def main() -> None:
         wait_room(a, room_id)
         expect(a.locator(".board-footer")).to_contain_text("你执白棋", timeout=10_000)
         print("  ✓ 刷新页面后凭 playerId/token 自动恢复对局与座位")
+
+        # 即使 localStorage 被清掉，也能靠握手 Cookie 认回同一玩家与座位
+        a.evaluate("() => localStorage.removeItem('gomoku.session.v1')")
+        a.reload(wait_until="networkidle")
+        wait_room(a, room_id)
+        expect(a.locator(".board-footer")).to_contain_text("你执白棋", timeout=10_000)
+        print("  ✓ 清空 localStorage 后刷新，仍凭 Cookie 恢复同一玩家与座位")
 
         if errors:
             print("\n浏览器控制台错误：")

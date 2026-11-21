@@ -21,11 +21,11 @@ WELCOME_KEYS = {
 }
 
 
-def _welcome(ws) -> dict[str, Any]:
+def _welcome(ws, *, reconnected: bool = False) -> dict[str, Any]:
     message = ws.receive_json()
     assert message["type"] == "welcome", message
     assert set(message) == WELCOME_KEYS
-    assert message["reconnected"] is False
+    assert message["reconnected"] is reconnected
     assert message["protocolVersion"] == 1
     assert message["playerId"].startswith("p_")
     assert message["token"].startswith("t_")
@@ -248,9 +248,10 @@ def test_room_errors_and_turn_validation() -> None:
             _read_room(b)
             _read_rooms(c)  # 大厅推送：playerCount 变化
 
-            # 已在房间
+            # 已在同一房间：幂等，直接重发快照（刷新后误点「加入」也能恢复）
             b.send_json({"type": "join_room", "roomId": room["id"], "name": "小红"})
-            _read_error(b, "ALREADY_IN_ROOM")
+            assert _read_room(b)["id"] == room["id"]
+            _read_room(a)
 
             # 房间已满
             c.send_json({"type": "join_room", "roomId": room["id"], "name": "小刚"})
@@ -590,3 +591,96 @@ def test_websocket_origin_allowlist() -> None:
             assert exc.code == 1008
         else:  # pragma: no cover - 白名单失效时给出明确失败
             raise AssertionError("非白名单 Origin 不应完成 WebSocket 握手")
+
+
+def test_spectator_watch_play_and_leave() -> None:
+    """第三人在满房/开局后只能观战：看得到棋局与聊天，不占座、不能落子。"""
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as a, client.websocket_connect(
+            "/ws"
+        ) as b, client.websocket_connect("/ws") as c:
+            _welcome(a)
+            _welcome(b)
+            c_welcome = _welcome(c)
+
+            room = _create_room(a, name="小明")
+            _read_rooms(b)
+            _read_rooms(c)
+            b.send_json({"type": "join_room", "roomId": room["id"], "name": "小红"})
+            _read_room(a)
+            _read_room(b)
+            _read_rooms(c)
+
+            a.send_json({"type": "ready"})
+            _read_room(a)
+            _read_room(b)
+            b.send_json({"type": "ready"})
+            _read_room(a)
+            _read_room(b)
+            _read_rooms(c)
+
+            # 对局已开始：正常加入失败
+            c.send_json({"type": "join_room", "roomId": room["id"], "name": "路人"})
+            _read_error(c, "ROOM_STARTED")
+            # 观战成功：拿到完整快照，观战人数 1
+            c.send_json({"type": "watch_room", "roomId": room["id"], "name": "路人"})
+            watcher_room = _read_room(c)
+            assert watcher_room["spectators"] == 1
+            assert all(p["id"] != c_welcome["playerId"] for p in watcher_room["players"])
+            _read_room(a)
+            _read_room(b)
+
+            # 观战者不能落子
+            c.send_json({"type": "move", "row": 0, "col": 0})
+            _read_error(c, "NOT_IN_ROOM")
+
+            # 对局落子会同步给观战者
+            a.send_json({"type": "move", "row": 7, "col": 7})
+            seen = _read_room(c)
+            assert seen["game"]["lastMove"] == {"row": 7, "col": 7}
+            _read_room(a)
+            _read_room(b)
+
+            # 观战者可以聊天
+            c.send_json({"type": "chat", "text": "好棋"})
+            chat = _read_type(a, "chat")
+            assert chat["message"]["text"] == "好棋"
+            _read_type(b, "chat")
+            _read_type(c, "chat")
+
+            # 观战者退出：房间观战人数归零
+            c.send_json({"type": "leave_room"})
+            assert c.receive_json()["room"] is None
+            assert _read_room(a)["spectators"] == 0
+            _read_room(b)
+
+
+def test_spectator_cannot_watch_while_seated() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as a:
+            _welcome(a)
+            room = _create_room(a)
+            a.send_json({"type": "watch_room", "roomId": room["id"], "name": "小明"})
+            _read_error(a, "ALREADY_IN_ROOM")
+
+
+def test_handshake_cookie_restores_player() -> None:
+    """浏览器 Cookie 恢复身份：刷新/重开时即使 localStorage 丢失也能认回同一玩家。"""
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            welcome = _welcome(ws)
+        cookie = f"gomoku_session={welcome['playerId']}.{welcome['token']}"
+        with client.websocket_connect("/ws", headers={"cookie": cookie}) as ws:
+            again = _welcome(ws, reconnected=True)
+            assert again["playerId"] == welcome["playerId"]
+
+        # 非法 Cookie：分配新身份，不报错
+        with client.websocket_connect(
+            "/ws", headers={"cookie": "gomoku_session=p_deadbeef.bad-token"}
+        ) as ws:
+            fresh = _welcome(ws)
+            assert fresh["playerId"] != welcome["playerId"]
+            assert fresh["reconnected"] is False

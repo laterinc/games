@@ -11,6 +11,9 @@
   服务端另有 30s 无消息则断开（客户端 ping 足够）。
 - 重连：客户端首次连接收到 `welcome` 后把 `playerId` + `token` 存入 localStorage；
   断线重连时先发 `hello`（见下）恢复身份与所在房间。
+- 身份 Cookie：服务端在 WebSocket 握手响应里下发 `gomoku_session`（`playerId.token`，
+  HttpOnly、30 天）。浏览器刷新/重开后即使 localStorage 丢失，服务端也会按 Cookie
+  恢复同一个玩家（座位/昵称/所在房间不变），并回 `welcome.reconnected=true`。
 - 限流：单个连接 5 秒内最多 40 条消息，超出回 `RATE_LIMITED` 错误并计入，严重可断开。
 
 ## 2. 服务端 → 客户端消息
@@ -47,7 +50,7 @@
       {"id": "p_9f2c1a7d", "name": "小明", "color": "black", "connected": true, "ready": true, "isHost": true},
       {"id": "p_4b8e0c11", "name": "小红", "color": "white", "connected": true, "ready": true, "isHost": false}
     ],
-    "spectators": 0,
+    "spectators": 1,
     "rematchVotes": [],
     "game": {
       "boardSize": 15,
@@ -80,6 +83,8 @@
 - `moves`：按落子顺序，用于复盘/手数显示。
 - 房间内玩家最多 2 人；`players` 顺序固定为黑方在前。断线玩家的 `connected=false`，
   60 秒内不回来则视为离开。
+- `spectators` 是当前观战人数。观战者不占座位、不参与准备/落子/重开投票，
+  但会收到全部 `room` 快照，可看棋局和最近聊天记录，也可以发言。
 - `rematchVotes`：已投票"再来一局"的 playerId 数组。双方都投后自动重开并**交换黑白**。
 
 ### 2.3 rooms（大厅房间列表）
@@ -173,9 +178,25 @@
 ```
 
 成功进入并收到 `room` 快照；失败按错误码返回。加入者颜色为创建者颜色的相反色。
+如果该玩家已经在这个房间（例如刷新后误点「加入」），视为幂等操作，直接重发房间快照。
 若创建者选了 `random`，加入时服务端已按实际颜色分配。
 
-### 3.4 quick_match
+### 3.4 watch_room（观战）
+
+```json
+{"type": "watch_room", "roomId": "8F3KQ2", "name": "路人甲"}
+```
+
+以**观战者**身份进入房间：不占玩家座位，可以看棋盘、聊天与状态变化，不能落子/准备/投票。
+适用于满房或对局已开始（`join_room` 返回 `ROOM_FULL` / `ROOM_STARTED`）的邀请链接。
+
+- 成功：服务端把该连接加入观战列表，广播 `room` 快照（`spectators` 加 1），并单独发给观战者。
+- 已在房间内对局：`ALREADY_IN_ROOM`；房间不存在：`ROOM_NOT_FOUND`；
+  观战人数超过 20：`ROOM_FULL`（message 为「观战人数已满」）。
+- 重复对同一房间发 `watch_room` 幂等，重发快照。
+- 观战者断开连接立即退出观战（无 60s 宽限）；`leave_room` 同样可用。
+
+### 3.5 quick_match
 
 ```json
 {"type": "quick_match", "name": "小红"}
@@ -184,16 +205,16 @@
 优先加入最早的、公开且仅 1 人的 `waiting` 房；没有则新建公开房（创建者执黑）。
 结果与 create/join 相同。
 
-### 3.5 list_rooms
+### 3.6 list_rooms
 
 `{"type":"list_rooms"}` → 回 `rooms`。
 
-### 3.6 ready（切换准备状态）
+### 3.7 ready（切换准备状态）
 
 `{"type":"ready"}`：`waiting` 状态下切换自己的 `ready`。两人都 `ready` 时立即开局：
 重置棋盘，黑方先行，`status=playing`。`playing` / `finished` 状态下发送返回 `GAME_NOT_ACTIVE`。
 
-### 3.7 move
+### 3.8 move
 
 ```json
 {"type": "move", "row": 7, "col": 8}
@@ -204,25 +225,25 @@
 五连即 `status=finished`、`winner`、`winLine`、`endedReason="five"`；
 下满无五连则 `winner=null`、`endedReason="draw"`。
 
-### 3.8 rematch
+### 3.9 rematch
 
 `{"type":"rematch"}`：`finished` 状态下投票"再来一局"。
 同一玩家重复投票幂等。双方都投票后：清空棋盘、`status=playing`、**交换黑白**、
 `winner/winLine/endedReason=null`、`rematchVotes=[]`，黑方先行（原白方执黑）。
 
-### 3.9 leave_room
+### 3.10 leave_room
 
-`{"type":"leave_room"}`：离开当前房间。`playing` 时对手收到 `notice`，
+`{"type":"leave_room"}`：离开当前房间（玩家离开座位；观战者退出观战）。`playing` 时对手收到 `notice`，
 对局结束（`endedReason="forfeit"`，对手获胜）随后房间重置为 `waiting`（棋盘清空、
 剩余玩家为 host、ready=false），等待新对手。房主离开且房间无人则房间销毁。
 
-### 3.10 chat
+### 3.11 chat
 
 ```json
 {"type": "chat", "text": "好棋！"}
 ```
 
-`text` 去首尾空白后 1–200 字符；仅房间内可用，否则 `NOT_IN_ROOM`。
+`text` 去首尾空白后 1–200 字符；房间内的玩家与观战者都可发言，否则 `NOT_IN_ROOM`。
 聊天记录保留最近 50 条，随 `room.chat` 数组下发（见下），并单独推送 `chat` 消息：
 
 ```json
@@ -232,7 +253,7 @@
 `room.chat` 字段同样存在（最多 50 条，结构相同）。前端可二选一，
 **建议**：渲染用 `room.chat`，收到 `chat` 时追加（按 `id` 去重），收到 `room` 时整体替换。
 
-### 3.11 ping
+### 3.12 ping
 
 `{"type":"ping"}` → `pong`。
 
@@ -245,6 +266,7 @@ create/join/quick ──► waiting ──(双方 ready)──► playing ──
                         └──────────── 对手离开后重置（棋盘清空）◄────────────────┘
 finished ──(双方 rematch)──► playing（交换黑白）
 任意状态 ──(leave_room)──► 离开，room=null
+任意房间 ──(watch_room)──► 观战（不占座，只读；断开即退出）
 ```
 
 - 房间只剩 0 人即销毁；`waiting` 房间 6 小时无活动回收；`playing` 房间不因空闲回收。
@@ -268,5 +290,7 @@ Vite 等外部静态服务器托管，后端不提供静态文件服务。
 - 昵称、房间名、聊天内容做 HTML 转义由前端负责（React 默认转义即可），服务端去除首尾空白、
   长度限制并拒绝仅含空白的内容。
 - 服务端不得把 token 放进任何广播消息（仅 `welcome` 单发给本人）。
+- 身份 Cookie 与 `hello` token 等价，仅用于识别同一浏览器；服务端重启后内存身份失效，
+  客户端会拿到新身份（房间也随进程重启丢失）。
 - 广播顺序：先更新内存状态，再按连接逐条发送；同一连接不得并发写（每个连接一把发送锁）。
 - 所有时间戳为毫秒级 Unix 时间。

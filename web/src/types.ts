@@ -172,6 +172,12 @@ export interface QuickMatchPayload {
   name: string;
 }
 
+export interface WatchRoomPayload {
+  type: 'watch_room';
+  roomId: string;
+  name: string;
+}
+
 export interface ListRoomsPayload {
   type: 'list_rooms';
 }
@@ -208,6 +214,7 @@ export type ClientMessage =
   | CreateRoomPayload
   | JoinRoomPayload
   | QuickMatchPayload
+  | WatchRoomPayload
   | ListRoomsPayload
   | ReadyPayload
   | MovePayload

@@ -12,6 +12,7 @@ interface RoomViewProps {
   room: Room;
   status: SocketStatus;
   playerId: string | null;
+  isSpectator: boolean;
   chat: ChatMessage[];
   onMove: (row: number, col: number) => void;
   onReady: () => void;
@@ -51,6 +52,7 @@ export function RoomView({
   room,
   status,
   playerId,
+  isSpectator,
   chat,
   onMove,
   onReady,
@@ -60,6 +62,7 @@ export function RoomView({
   notify,
 }: RoomViewProps) {
   const connected = status === 'open';
+  const spectator = isSpectator;
   const players = room.players;
   const me = playerId ? players.find((player) => player.id === playerId) ?? null : null;
   const opponent = playerId ? players.find((player) => player.id !== playerId) ?? null : null;
@@ -105,6 +108,10 @@ export function RoomView({
   };
 
   const requestLeave = (): void => {
+    if (spectator) {
+      onLeave();
+      return;
+    }
     if (room.status === 'playing') {
       setLeaveOpen(true);
       return;
@@ -146,6 +153,7 @@ export function RoomView({
               复制邀请链接
             </button>
             {room.visibility === 'private' ? <span className="badge badge-private">私密</span> : null}
+            {spectator ? <span className="badge badge-spectator">观战中</span> : null}
           </div>
         </div>
         <div className="room-header-actions">
@@ -154,7 +162,7 @@ export function RoomView({
             {connected ? '已连接' : '重连中'}
           </span>
           <button type="button" className="btn btn-ghost btn-small danger" onClick={requestLeave}>
-            离开房间
+            {spectator ? '退出观战' : '离开房间'}
           </button>
         </div>
       </header>
@@ -193,7 +201,7 @@ export function RoomView({
             <div className={`result-banner tone-${result.tone}`} role="status">
               <span className="result-title">{result.title}</span>
               {result.detail ? <span className="result-detail">{result.detail}</span> : null}
-              <span className="result-hint">可在右侧投票再来一局</span>
+              <span className="result-hint">{spectator ? '观战中' : '可在右侧投票再来一局'}</span>
             </div>
           ) : null}
 
@@ -203,7 +211,7 @@ export function RoomView({
 
           <div className="board-footer">
             <span>黑棋先行 · 五连获胜</span>
-            <span>{myColor ? `你执${COLOR_LABEL[myColor]}` : '未入座'}</span>
+            <span>{spectator ? '观战中 · 只读' : myColor ? `你执${COLOR_LABEL[myColor]}` : '未入座'}</span>
           </div>
         </div>
 
@@ -222,13 +230,21 @@ export function RoomView({
               seatColor="white"
               isMe={whiteSeat !== null && whiteSeat.id === playerId}
             />
+            {room.spectators > 0 ? (
+              <p className="spectator-count">{room.spectators} 人正在观战</p>
+            ) : null}
             {opponent && !opponent.connected ? (
               <p className="hint-warn">对手掉线，60 秒内未重连将按离开处理。</p>
             ) : null}
           </div>
 
           <div className="card glass room-actions-card">
-            {room.status === 'waiting' ? (
+            {spectator ? (
+              <>
+                <p className="action-title">观战中</p>
+                <p className="action-hint">你正在只读观看本局，无法落子、准备或投票。</p>
+              </>
+            ) : room.status === 'waiting' ? (
               <>
                 <p className="action-title">
                   {players.length < 2 ? '等待对手加入' : me?.ready ? '已准备，等待对手' : '双方准备后开局'}
@@ -271,7 +287,7 @@ export function RoomView({
               onClick={requestLeave}
               disabled={!connected}
             >
-              离开房间
+              {spectator ? '退出观战' : '离开房间'}
             </button>
           </div>
 

@@ -1360,6 +1360,18 @@ button {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.badge-spectator {
+  color: #0d1117;
+  background: linear-gradient(120deg, #ffd98a, #e9b45f);
+}
+
+.spectator-count {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
 .vs-divider {
   position: relative;
   text-align: center;

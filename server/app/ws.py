@@ -39,6 +39,10 @@ router = APIRouter()
 #: 同一玩家被新连接顶替时关闭旧连接的关闭码
 _CLOSE_REPLACED = 4001
 
+#: 身份 Cookie：保存 playerId.token，浏览器刷新/重开时用于恢复同一玩家
+_SESSION_COOKIE = "gomoku_session"
+_COOKIE_MAX_AGE = 30 * 24 * 3600
+
 
 class ClientConnection:
     """单条 WS 连接：一把发送锁保证串行写，并维护 5s/40 条限流窗口。"""
@@ -114,6 +118,28 @@ class ConnectionHub:
         return len(self._connections)
 
 
+def _cookie_is_secure(websocket: WebSocket) -> bool:
+    forwarded = websocket.headers.get("x-forwarded-proto", "")
+    if forwarded.split(",")[0].strip().lower() == "https":
+        return True
+    return websocket.url.scheme == "wss"
+
+
+def _session_cookie_header(websocket: WebSocket, value: str) -> bytes:
+    parts = [
+        f"{_SESSION_COOKIE}={value}",
+        "Path=/",
+        "HttpOnly",
+        f"Max-Age={_COOKIE_MAX_AGE}",
+    ]
+    if _cookie_is_secure(websocket):
+        # 跨站点（前端与后端不同域）且 HTTPS 时才能用 SameSite=None
+        parts.extend(["Secure", "SameSite=None"])
+    else:
+        parts.append("SameSite=Lax")
+    return "; ".join(parts).encode("latin-1")
+
+
 def _welcome_message(player: Player, *, reconnected: bool) -> dict[str, Any]:
     return {
         "type": "welcome",
@@ -173,6 +199,8 @@ class MessageDispatcher:
             await self._handle_create_room(connection, payload)
         elif msg_type == "join_room":
             await self._handle_join_room(connection, payload)
+        elif msg_type == "watch_room":
+            await self._handle_watch_room(connection, payload)
         elif msg_type == "quick_match":
             await self._handle_quick_match(connection, payload)
         elif msg_type == "ready":
@@ -234,6 +262,13 @@ class MessageDispatcher:
         name = validate_player_name(require_str(payload, "name"))
         await self._manager.join_room(connection.player_id, room_id=room_id, name=name)
 
+    async def _handle_watch_room(
+        self, connection: ClientConnection, payload: dict[str, Any]
+    ) -> None:
+        room_id = require_str(payload, "roomId")
+        name = validate_player_name(require_str(payload, "name"))
+        await self._manager.watch_room(connection.player_id, room_id=room_id, name=name)
+
     async def _handle_quick_match(
         self, connection: ClientConnection, payload: dict[str, Any]
     ) -> None:
@@ -259,12 +294,29 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         await websocket.close(code=1008)
         return
 
-    await websocket.accept()
-    player = manager.create_player()
+    # 优先用握手 Cookie 恢复身份：刷新页面/重开浏览器时即使 localStorage 丢了，
+    # 也能认回同一个 player（房间座位、昵称、token 都不变）。失败则分配新匿名身份。
+    restored = manager.authenticate_cookie(websocket.cookies.get(_SESSION_COOKIE))
+    player = restored or manager.create_player()
+    cookie_header = _session_cookie_header(websocket, manager.session_cookie_value(player))
+    await websocket.accept(headers=[(b"set-cookie", cookie_header)])
+
     connection = ClientConnection(websocket, player.id)
-    hub.register(connection)
+    replaced = hub.rebind(connection, player.id)
+    if replaced is not None and replaced is not connection:
+        try:
+            await replaced.ws.close(code=_CLOSE_REPLACED)
+        except Exception:  # noqa: BLE001 - 旧连接已断
+            logger.debug("关闭被顶替的旧连接失败", exc_info=True)
+
     try:
-        await connection.send(_welcome_message(player, reconnected=False))
+        if restored is not None:
+            await manager.mark_connected(player.id)
+        await connection.send(_welcome_message(player, reconnected=restored is not None))
+        if restored is not None:
+            room = manager.room_snapshot_for(player.id)
+            if room is not None:
+                await connection.send({"type": "room", "room": room})
         dispatcher = MessageDispatcher(manager, hub)
         while True:
             try:
@@ -288,4 +340,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         logger.exception("WebSocket 连接异常")
     finally:
         if hub.unregister(connection):
-            await manager.mark_disconnected(connection.player_id)
+            if manager.is_spectator(connection.player_id):
+                # 观战不占座，断开即退出，不进入 60s 宽限
+                await manager.remove_spectator(connection.player_id, notify=False)
+            else:
+                await manager.mark_disconnected(connection.player_id)

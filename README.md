@@ -2,7 +2,7 @@
 
 一个可以直接放到公网联机的五子棋小游戏：**前端 React 18 + TypeScript + Vite**，
 **后端 Python 3.11 + FastAPI + WebSocket**。服务端为唯一裁判，房间码邀请、
-快速匹配、准备开局、聊天、再来一局、断线重连全部可用。
+快速匹配、准备开局、聊天、再来一局、第三人观战、断线重连全部可用。
 
 - **前后端职责分离**：Python 后端只提供 `/api` 与 `/ws`，不读写任何前端文件；
   前端构建产物 `web/dist` 由 Nginx / CDN 托管（开发用 Vite）。后端进程不包含 Node、
@@ -29,8 +29,9 @@ cd gomoku
 | 大厅 | 修改昵称、快速匹配、创建房间（公开/私密、执黑/执白/随机）、公开房间列表、房间码加入、`?room=CODE` 邀请链接 |
 | 对局 | 15 路棋盘、黑白轮流、服务端判胜（横/竖/斜，≥5 连）、和棋、最后一手标记、胜利连线高亮、手数、双方在线状态 |
 | 房间 | 双方准备开局、房主标识、复制房间码/邀请链接、离开房间、对手离开判负并重置等待新对手 |
-| 社交 | 房间内聊天（保留最近 50 条、长度限制、频率限制） |
-| 稳定性 | 断线自动重连、会话恢复（playerId + token）、掉线 60s 宽限、心跳保活、消息限流 |
+| 观战 | 满房/开局后第三人可只读观战（不占座），同步棋盘与聊天，可随时退出 |
+| 社交 | 房间内聊天（玩家与观战者，保留最近 50 条、长度限制、频率限制） |
+| 稳定性 | 断线自动重连、会话恢复（localStorage token + 握手 Cookie）、掉线 60s 宽限、心跳保活、消息限流 |
 
 ## 界面预览
 
@@ -355,10 +356,10 @@ docker build -f Dockerfile.web -t gomoku-web \
 ## 测试
 
 ```bash
-# 1) 后端单元 + WebSocket 集成测试（48 个用例）
+# 1) 后端单元 + WebSocket 集成测试（51 个用例）
 cd server && .venv/bin/python -m pytest -q
 
-# 2) 端到端：先启动后端（./scripts/start.sh），用两个 WebSocket 客户端打完整对局
+# 2) 端到端：先启动后端（./scripts/start.sh），真实 WS 双人对局 + 观战 + Cookie 恢复
 cd ..      # 回到仓库根目录
 server/.venv/bin/python scripts/e2e.py --url http://127.0.0.1:8765
 
@@ -378,8 +379,9 @@ python3 -m venv /tmp/pwenv && /tmp/pwenv/bin/pip install playwright
 /tmp/pwenv/bin/python scripts/ui_smoke.py --url http://127.0.0.1:5173
 ```
 
-它会开两个独立浏览器上下文，真实走完「建房 → 邀请链接加入 → 双方准备 →
-九手五连 → 再来一局换色 → 聊天 → 刷新断线重连 → 移动端视图」，
+它会开多个独立浏览器上下文，真实走完「建房 → 邀请链接加入 → 双方准备 →
+九手五连 → 再来一局换色 → 第三人观战 → 聊天 → 刷新断线重连 →
+清空 localStorage 后靠 Cookie 恢复 → 移动端视图」，
 并断言零控制台错误、截图输出到 `/tmp/gomoku-ui/`。
 
 ## REST / 协议
@@ -397,13 +399,17 @@ python3 -m venv /tmp/pwenv && /tmp/pwenv/bin/pip install playwright
   与 `server/app/rooms.py`；前端不做任何规则判断，只渲染服务端下发的快照。
 - **全量快照 + 增量事件**：每次房间变化广播完整 `room` 快照（含棋盘、聊天），
   前端无状态回放压力；聊天另有 `chat` 事件用于即时追加（按 id 去重）。
-- **重连**：`welcome` 下发 `playerId` + 一次性 `token`，重连发 `hello` 恢复；
-  掉线 60s 内座位保留，对手界面显示掉线状态。
+- **身份与重连**：握手时下发 `gomoku_session` Cookie（`playerId.token`，HttpOnly 30 天），
+  刷新/重开浏览器时即使 localStorage 丢失也能认回同一玩家；`welcome` 同时下发
+  `playerId` + `token`，页面重连会带上 `hello`。掉线 60s 内座位保留，对手界面显示掉线状态。
+- **观战**：观战者不占座、不进 `players`，只接收 `room` 快照与聊天；观战断开立即退出。
+  前端在邀请链接里提供「观战」入口，满房/开局后的第三人不会被挡在大厅。
 - **安全**：昵称/房间名/聊天长度与空白校验、每连接消息限流、发送锁、
   token 不进入任何广播、WS Origin 白名单可选、无 SQL/无文件写入。
 
 ## 已知边界
 
 - 单实例内存态，重启后房间丢失（休闲棋局可接受）。
-- 无账号体系，昵称仅用于展示，token 只用于断线重连身份。
+- 无账号体系：身份靠 localStorage 的 token + 浏览器 Cookie，换设备/清 Cookie 即新玩家；
+  服务端重启后内存身份与房间会丢失（休闲局可接受）。
 - 不含观战、悔棋、计时器；如需可在协议 v2 上扩展。
