@@ -120,6 +120,7 @@ export default function App() {
       ) : null}
 
       <header className="app-header">
+        <div className="header-left">
         <a
           className="brand"
           href={homePath()}
@@ -145,6 +146,27 @@ export default function App() {
           <span className="brand-name">游戏中心</span>
           <span className="brand-sub">好友休闲</span>
         </a>
+          {route.name !== 'home' && !state.room ? (
+            <button
+              type="button"
+              className="header-back"
+              onClick={() => navigate(homePath())}
+              aria-label="返回游戏中心"
+            >
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M15 5 8 12l7 7"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span>返回游戏中心</span>
+            </button>
+          ) : null}
+        </div>
+
         <span className={`conn-pill ${state.status}`}>
           <span className="conn-dot" aria-hidden="true" />
           {STATUS_TEXT[state.status]}
