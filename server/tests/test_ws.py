@@ -30,6 +30,10 @@ def _welcome(ws, *, reconnected: bool = False) -> dict[str, Any]:
     assert message["playerId"].startswith("p_")
     assert message["token"].startswith("t_")
     assert isinstance(message["serverTime"], int)
+    # welcome 之后紧跟一条当前玩家的最近战绩
+    records = ws.receive_json()
+    assert records["type"] == "records", records
+    assert isinstance(records["records"], list)
     return message
 
 
@@ -205,6 +209,10 @@ def test_full_two_player_game_and_rematch() -> None:
             assert win_line is not None and len(win_line) == 5
             assert latest["game"]["moves"] and len(latest["game"]["moves"]) == 9
 
+            # 终局后服务端会推送双方各自的最近战绩
+            assert _read_type(black_ws, "records")["records"][0]["result"] == "win"
+            assert _read_type(white_ws, "records")["records"][0]["result"] == "loss"
+
             # 双方 rematch，交换黑白并重开
             black_ws.send_json({"type": "rematch"})
             vote = _read_room(black_ws)
@@ -325,6 +333,7 @@ def test_hello_reconnect_restores_room() -> None:
             assert recovered["playerId"] == player_id
             assert recovered["token"] == token
             assert recovered["protocolVersion"] == 1
+            assert _read_type(second, "records")["type"] == "records"
 
             snapshot = _read_room(second)
             assert snapshot["id"] == room["id"]
@@ -711,3 +720,148 @@ def test_multiple_tabs_same_player_do_not_kick_each_other() -> None:
 
                 tab1.send_json({"type": "create_room", "name": "小明"})
                 assert _read_room(tab1)["status"] == "waiting"
+
+
+def test_resign_finishes_game_and_records() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as a, client.websocket_connect("/ws") as b:
+            _welcome(a)
+            _welcome(b)
+            room = _create_room(a, name="小明")
+            _read_rooms(b)
+            b.send_json({"type": "join_room", "roomId": room["id"], "name": "小红"})
+            _read_room(a)
+            _read_room(b)
+            a.send_json({"type": "ready"})
+            _read_room(a)
+            _read_room(b)
+            b.send_json({"type": "ready"})
+            _read_room(a)
+            _read_room(b)
+
+            a.send_json({"type": "resign"})
+            finished_a = _read_room(a)
+            finished_b = _read_room(b)
+            assert finished_a == finished_b
+            assert finished_a["status"] == "finished"
+            assert finished_a["game"]["winner"] == "white"
+            assert finished_a["game"]["endedReason"] == "resign"
+            assert _read_type(a, "records")["records"][0]["result"] == "loss"
+            assert _read_type(b, "records")["records"][0]["result"] == "win"
+
+def test_undo_request_accept_and_reject() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as a, client.websocket_connect("/ws") as b:
+            _welcome(a)
+            b_welcome = _welcome(b)
+            room = _create_room(a, name="小明")
+            _read_rooms(b)
+            b.send_json({"type": "join_room", "roomId": room["id"], "name": "小红"})
+            _read_room(a)
+            _read_room(b)
+            a.send_json({"type": "ready"})
+            _read_room(a)
+            _read_room(b)
+            b.send_json({"type": "ready"})
+            _read_room(a)
+            _read_room(b)
+
+            a.send_json({"type": "move", "row": 7, "col": 7})
+            _read_room(a)
+            _read_room(b)
+            b.send_json({"type": "move", "row": 0, "col": 0})
+            _read_room(a)
+            _read_room(b)
+
+            # 白方请求悔棋，黑方同意：撤回白方最后一手
+            b.send_json({"type": "undo_request"})
+            pending = _read_room(a)
+            _read_room(b)
+            assert pending["pendingUndo"]["playerId"] == b_welcome["playerId"]
+            assert pending["pendingUndo"]["name"] == "小红"
+
+            a.send_json({"type": "undo_response", "accept": True})
+            undone = _read_room(a)
+            _read_room(b)
+            assert undone["pendingUndo"] is None
+            assert len(undone["game"]["moves"]) == 1
+            assert undone["game"]["board"][0][0] == 0
+            assert undone["game"]["currentTurn"] == "white"
+            assert _read_type(a, "notice")["text"] == "对方同意悔棋"
+            assert _read_type(b, "notice")["text"] == "对方同意悔棋"
+
+            # 再次请求，黑方拒绝：棋盘不变
+            b.send_json({"type": "undo_request"})
+            _read_room(a)
+            _read_room(b)
+            a.send_json({"type": "undo_response", "accept": False})
+            rejected = _read_room(a)
+            _read_room(b)
+            assert rejected["pendingUndo"] is None
+            assert len(rejected["game"]["moves"]) == 1
+            assert _read_type(a, "notice")["text"] == "对方拒绝悔棋"
+            assert _read_type(b, "notice")["text"] == "对方拒绝悔棋"
+
+def test_ai_room_flow_moves_and_resign() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            ws.send_json({"type": "create_room", "name": "小明", "mode": "ai", "color": "black"})
+            room = _read_room(ws)
+            assert room["mode"] == "ai"
+            assert room["status"] == "playing"
+            assert len(room["players"]) == 2
+            assert room["players"][1]["isBot"] is True
+            assert room["players"][1]["name"] == "电脑"
+            assert room["game"]["currentTurn"] == "black"
+
+            ws.send_json({"type": "move", "row": 7, "col": 7})
+            human_move = _read_room(ws)
+            assert len(human_move["game"]["moves"]) == 1
+            ai_reply = _read_room(ws)  # 电脑思考 0.45s 后应手
+            assert len(ai_reply["game"]["moves"]) == 2
+            assert ai_reply["game"]["currentTurn"] == "black"
+            assert ai_reply["players"][1]["color"] == "white"
+
+            ws.send_json({"type": "resign"})
+            finished = _read_room(ws)
+            assert finished["game"]["endedReason"] == "resign"
+            assert finished["game"]["winner"] == "white"
+            record = _read_type(ws, "records")["records"][0]
+            assert record["result"] == "loss"
+            assert record["mode"] == "ai"
+
+
+def test_ai_room_when_ai_moves_first() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            ws.send_json({"type": "create_room", "name": "小明", "mode": "ai", "color": "white"})
+            initial = _read_room(ws)
+            assert initial["players"][0]["isBot"] is True  # 电脑执黑
+            opening = _read_room(ws)  # 电脑先手
+            assert len(opening["game"]["moves"]) == 1
+            assert opening["game"]["moves"][0]["color"] == "black"
+            assert opening["game"]["currentTurn"] == "white"
+
+
+def test_ai_undo_is_auto_accepted() -> None:
+    app = create_app()
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            ws.send_json({"type": "create_room", "name": "小明", "mode": "ai", "color": "black"})
+            _read_room(ws)
+            ws.send_json({"type": "move", "row": 7, "col": 7})
+            _read_room(ws)
+            _read_room(ws)  # 电脑应手
+
+            ws.send_json({"type": "undo_request"})
+            undone = _read_room(ws)
+            assert len(undone["game"]["moves"]) == 0
+            assert undone["game"]["currentTurn"] == "black"
+            assert _read_type(ws, "notice")["text"] == "电脑同意悔棋"

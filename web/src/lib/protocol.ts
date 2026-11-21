@@ -8,8 +8,11 @@ import type {
   CreateColor,
   EndReason,
   Game,
+  GameMode,
+  MatchRecord,
   Move,
   NoticeLevel,
+  PendingUndo,
   Player,
   Point,
   Room,
@@ -62,7 +65,20 @@ function asNoticeLevel(value: unknown): NoticeLevel {
 }
 
 function asEndReason(value: unknown): EndReason | null {
-  return value === 'five' || value === 'draw' || value === 'forfeit' ? value : null;
+  return value === 'five' || value === 'draw' || value === 'forfeit' || value === 'resign'
+    ? value
+    : null;
+}
+
+function asGameMode(value: unknown): GameMode {
+  return value === 'ai' ? 'ai' : 'pvp';
+}
+
+function asPendingUndo(value: unknown): PendingUndo | null {
+  if (!isRecord(value)) return null;
+  const playerId = asString(value.playerId);
+  if (!playerId) return null;
+  return { playerId, name: asString(value.name, '棋友') };
 }
 
 export function asBoardSize(value: unknown): number {
@@ -132,6 +148,7 @@ function asPlayer(value: unknown, index: number): Player | null {
     connected: asBoolean(value.connected, true),
     ready: asBoolean(value.ready, false),
     isHost: asBoolean(value.isHost, index === 0),
+    isBot: asBoolean(value.isBot, false),
   };
 }
 
@@ -205,6 +222,8 @@ export function normalizeRoom(value: unknown): Room | null {
     players,
     spectators: asNumber(value.spectators, 0),
     rematchVotes,
+    mode: asGameMode(value.mode),
+    pendingUndo: asPendingUndo(value.pendingUndo),
     game: normalizeGame(value.game),
     chat: Array.isArray(value.chat) ? asChatList(value.chat) : undefined,
   };
@@ -239,6 +258,31 @@ export function normalizeRoomSummaries(value: unknown): RoomSummary[] {
 export function parseRoomListPayload(value: unknown): RoomSummary[] {
   if (!isRecord(value)) return [];
   return normalizeRoomSummaries(value.rooms);
+}
+
+function asMatchRecord(value: unknown): MatchRecord | null {
+  if (!isRecord(value)) return null;
+  const result = value.result;
+  if (result !== 'win' && result !== 'loss' && result !== 'draw') return null;
+  return {
+    result,
+    opponent: asString(value.opponent),
+    mode: asGameMode(value.mode),
+    endedReason: asEndReason(value.endedReason),
+    moves: asNumber(value.moves, 0),
+    myColor: asColor(value.myColor) ?? 'black',
+    at: asNumber(value.at, 0),
+  };
+}
+
+function asRecords(value: unknown): MatchRecord[] {
+  if (!Array.isArray(value)) return [];
+  const records: MatchRecord[] = [];
+  for (const item of value) {
+    const record = asMatchRecord(item);
+    if (record) records.push(record);
+  }
+  return records;
 }
 
 function parseJson(data: string): unknown {
@@ -293,6 +337,8 @@ export function parseServerMessage(data: string): ServerMessage | null {
       };
     case 'pong':
       return { type: 'pong', t: asNumber(parsed.t, 0) };
+    case 'records':
+      return { type: 'records', records: asRecords(parsed.records) };
     default:
       return null;
   }

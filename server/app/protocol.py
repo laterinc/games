@@ -24,6 +24,7 @@ RATE_LIMIT_MAX_MESSAGES = 40
 COLORS: tuple[str, ...] = ("black", "white")
 CREATE_COLORS: tuple[str, ...] = ("black", "white", "random")
 VISIBILITIES: tuple[str, ...] = ("public", "private")
+MODES: tuple[str, ...] = ("pvp", "ai")
 ROOM_STATUSES: tuple[str, ...] = ("waiting", "playing", "finished")
 
 
@@ -108,6 +109,14 @@ def optional_str(payload: dict[str, Any], key: str, default: str | None = None) 
     return value
 
 
+def require_bool(payload: dict[str, Any], key: str) -> bool:
+    """取必填布尔字段；缺失或类型错误回 INVALID_MESSAGE。"""
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise ProtocolError(ErrorCode.INVALID_MESSAGE, f"字段 {key} 缺失或不是布尔值")
+    return value
+
+
 def require_int(payload: dict[str, Any], key: str) -> int:
     """取必填整数字段（bool 不算整数）。"""
     value = payload.get(key)
@@ -152,4 +161,10 @@ def validate_visibility(raw: str) -> str:
 def validate_color(raw: str) -> str:
     if raw not in CREATE_COLORS:
         raise ProtocolError(ErrorCode.INVALID_MESSAGE, "color 只能是 black、white 或 random")
+    return raw
+
+
+def validate_mode(raw: str) -> str:
+    if raw not in MODES:
+        raise ProtocolError(ErrorCode.INVALID_MESSAGE, "mode 只能是 pvp 或 ai")
     return raw

@@ -50,11 +50,13 @@
     "createdAt": 1732000000000,
     "updatedAt": 1732000005000,
     "players": [
-      {"id": "p_9f2c1a7d", "name": "小明", "color": "black", "connected": true, "ready": true, "isHost": true},
+      {"id": "p_9f2c1a7d", "name": "小明", "color": "black", "connected": true, "ready": true, "isHost": true, "isBot": false},
       {"id": "p_4b8e0c11", "name": "小红", "color": "white", "connected": true, "ready": true, "isHost": false}
     ],
     "spectators": 1,
     "rematchVotes": [],
+    "mode": "pvp",
+    "pendingUndo": null,
     "game": {
       "boardSize": 15,
       "board": [[0,0,0,"...15 列..."]],
@@ -76,13 +78,16 @@
 字段约束：
 
 - `status`：`"waiting"`（不满 2 人或未全部准备）/ `"playing"` / `"finished"`。
+- `mode`：`"pvp"` 联机对战 / `"ai"` 人机对战（AI 房间创建即开局，电脑玩家 `isBot=true`）。
+- `pendingUndo`：待处理的悔棋请求 `{"playerId": "...", "name": "..."}`，无则为 `null`。
 - `visibility`：`"public"` / `"private"`。private 房间不出现在房间列表与快速匹配中。
 - `color`：`"black"` / `"white"`。`black` 先行。
 - `board`：15×15（由 `boardSize` 决定），`0` 空、`1` 黑、`2` 白。矩阵下标 `[row][col]`，
   `row` 从上到下、`col` 从左到右，均从 0 开始。
 - `winner`：`"black"` / `"white"` / `null`；`winLine`：获胜的连续棋子坐标数组
   `[{"row":r,"col":c}, ...]`（长度 ≥5），无胜负为 `null`。
-- `endedReason`：`"five"`（五连）/ `"draw"`（棋盘下满）/ `"forfeit"`（对手离开，仅用于结算）/ `null`。
+- `endedReason`：`"five"`（五连）/ `"draw"`（棋盘下满）/ `"forfeit"`（对手离开）/
+  `"resign"`（认输）/ `null`。
 - `moves`：按落子顺序，用于复盘/手数显示。
 - 房间内玩家最多 2 人；`players` 顺序固定为黑方在前。断线玩家的 `connected=false`，
   60 秒内不回来则视为离开。
@@ -124,7 +129,30 @@
 
 `level`：`"info"` / `"success"` / `"warn"`。
 
-### 2.6 error
+### 2.6 records（最近战绩，welcome 后紧跟一条）
+
+```json
+{
+  "type": "records",
+  "records": [
+    {
+      "result": "win",
+      "opponent": "小红",
+      "mode": "pvp",
+      "endedReason": "five",
+      "moves": 17,
+      "myColor": "black",
+      "at": 1732000008000
+    }
+  ]
+}
+```
+
+每个玩家最多保留 10 条，按时间升序；服务端在连接建立（welcome 之后）、hello 恢复身份后、
+以及对局结束时推送。`result`：`"win"` / `"loss"` / `"draw"`。
+战绩保存在服务端内存中，随玩家身份（Cookie/token）存活；服务端重启后清空。
+
+### 2.7 error
 
 ```json
 {"type": "error", "code": "NOT_YOUR_TURN", "message": "还没轮到你落子"}
@@ -166,12 +194,14 @@
 ### 3.2 create_room
 
 ```json
-{"type": "create_room", "name": "小明", "roomName": "午后棋局", "visibility": "public", "color": "black"}
+{"type": "create_room", "name": "小明", "roomName": "午后棋局", "visibility": "public", "color": "black", "mode": "pvp"}
 ```
 
 - `name` 必填，昵称。
 - `roomName` 可省，空则服务端自动生成（如 `小明的棋局`）。
 - `visibility` 缺省 `public`；`color` 缺省 `black`，可选 `random`（服务端随机黑/白）。
+- `mode` 可选 `"pvp"`（默认）或 `"ai"`：`ai` 表示人机对战，创建后立即开局，电脑顶上
+  相反颜色并自动落子；该房间为私密房，不出现在大厅列表。
 - 成功：创建者进入房间，服务端广播 `room` 快照（并给大厅推送新 `rooms`）。
 
 ### 3.3 join_room
@@ -260,6 +290,26 @@
 
 `{"type":"ping"}` → `pong`。
 
+### 3.13 resign（认输）
+
+`{"type":"resign"}`：仅对局中的真人玩家可用。对手直接获胜，`status=finished`、
+`winner=对手颜色`、`endedReason="resign"`，随后下发最新战绩。
+
+### 3.14 undo_request（请求悔棋）
+
+`{"type":"undo_request"}`：仅对局中、已有落子时可用。PVP 房间会写入
+`pendingUndo` 并广播，等待对手回应；AI 房间由电脑立即同意（撤回电脑应手 + 玩家上一手），
+并给玩家一条 `notice`。
+
+### 3.15 undo_response（回应悔棋）
+
+```json
+{"type": "undo_response", "accept": true}
+```
+
+仅对手可回应；`accept=true` 时撤回最后一手（PVP 只撤最后一手，`currentTurn` 回到该手颜色），
+`accept=false` 时保持棋盘不变；两种情况都会广播快照并通知双方。
+
 ## 4. 状态机
 
 ```
@@ -270,6 +320,9 @@ create/join/quick ──► waiting ──(双方 ready)──► playing ──
 finished ──(双方 rematch)──► playing（交换黑白）
 任意状态 ──(leave_room)──► 离开，room=null
 任意房间 ──(watch_room)──► 观战（不占座，只读；断开即退出）
+playing ──(resign)──► finished（对手胜，endedReason=resign）
+playing ──(undo_request/undo_response)──► playing（同意则回退一手）
+人机房：create(mode=ai) 直接 playing，电脑自动落子；单人 rematch 立即重开并换色
 ```
 
 - 房间只剩 0 人即销毁；`waiting` 房间 6 小时无活动回收；`playing` 房间不因空闲回收。

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app import game
+from app import ai, game
 
 
 def _board_with(black: list[tuple[int, int]], white: list[tuple[int, int]] | None = None) -> game.Board:
@@ -137,3 +137,24 @@ def test_full_board_without_five_is_draw_pattern() -> None:
     for row in range(15):
         for col in range(15):
             assert game.check_win(board, row, col) is None
+
+
+def test_ai_chooses_winning_move() -> None:
+    board = game.empty_board(15)
+    for col in range(3, 7):
+        board[7][col] = game.BLACK
+    move = ai.choose_move(board, "black")
+    assert move in {(7, 2), (7, 7)}
+
+
+def test_ai_blocks_opponent_four() -> None:
+    board = game.empty_board(15)
+    for col in range(3, 7):
+        board[7][col] = game.BLACK
+    move = ai.choose_move(board, "white")
+    assert move in {(7, 2), (7, 7)}
+
+
+def test_ai_opens_in_center() -> None:
+    board = game.empty_board(15)
+    assert ai.choose_move(board, "black") == (7, 7)

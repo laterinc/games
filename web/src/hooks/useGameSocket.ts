@@ -12,6 +12,7 @@ import type {
   JoinRoomPayload,
   QuickMatchPayload,
   Room,
+  MatchRecord,
   WatchRoomPayload,
   RoomSummary,
   RoomVisibility,
@@ -34,6 +35,7 @@ export interface GameSocketState {
   room: Room | null;
   rooms: RoomSummary[];
   chat: ChatMessage[];
+  records: MatchRecord[];
   toasts: ToastItem[];
 }
 
@@ -43,6 +45,7 @@ const initialState: GameSocketState = {
   room: null,
   rooms: [],
   chat: [],
+  records: [],
   toasts: [],
 };
 
@@ -52,6 +55,7 @@ type ReducerAction =
   | { type: 'room'; room: Room | null }
   | { type: 'rooms'; rooms: RoomSummary[] }
   | { type: 'chat'; message: ChatMessage }
+  | { type: 'records'; records: MatchRecord[] }
   | { type: 'toast'; id: number; level: ToastLevel; text: string }
   | { type: 'dismissToast'; id: number };
 
@@ -75,6 +79,8 @@ function reducer(state: GameSocketState, action: ReducerAction): GameSocketState
     }
     case 'rooms':
       return { ...state, rooms: action.rooms };
+    case 'records':
+      return { ...state, records: action.records };
     case 'chat': {
       if (state.chat.some((item) => item.id === action.message.id)) return state;
       return { ...state, chat: [...state.chat, action.message].slice(-MAX_CHAT_HISTORY) };
@@ -104,9 +110,13 @@ export interface GameActions {
   watchRoom: (roomId: string, name: string) => void;
   quickMatch: (name: string) => void;
   refreshRooms: () => void;
+  createAiRoom: (name: string, color?: CreateColor) => void;
   ready: () => void;
   move: (row: number, col: number) => void;
   rematch: () => void;
+  resign: () => void;
+  undoRequest: () => void;
+  undoResponse: (accept: boolean) => void;
   leaveRoom: () => void;
   chat: (text: string) => void;
   notify: (text: string, level?: ToastLevel) => void;
@@ -185,6 +195,9 @@ export function useGameSocket(): UseGameSocketResult {
           break;
         case 'notice':
           pushToast(message.level, message.text);
+          break;
+        case 'records':
+          dispatch({ type: 'records', records: message.records });
           break;
         case 'error':
           pushToast('error', message.message || ERROR_CODE_LABEL[message.code] || '操作失败');
@@ -311,6 +324,22 @@ export function useGameSocket(): UseGameSocketResult {
       send(payload);
     };
 
+    const createAiRoom = (name: string, color: CreateColor = 'black'): void => {
+      const trimmedName = name.trim();
+      if (!isValidNickname(trimmedName)) {
+        pushToast('error', `昵称需为 1–${MAX_NICKNAME_LENGTH} 个字符`);
+        return;
+      }
+      send({
+        type: 'create_room',
+        name: trimmedName,
+        roomName: '人机对战',
+        visibility: 'private',
+        color,
+        mode: 'ai',
+      });
+    };
+
     const quickMatch = (name: string): void => {
       const trimmedName = name.trim();
       if (!isValidNickname(trimmedName)) {
@@ -350,6 +379,18 @@ export function useGameSocket(): UseGameSocketResult {
       send({ type: 'rematch' });
     };
 
+    const resign = (): void => {
+      send({ type: 'resign' });
+    };
+
+    const undoRequest = (): void => {
+      send({ type: 'undo_request' });
+    };
+
+    const undoResponse = (accept: boolean): void => {
+      send({ type: 'undo_response', accept });
+    };
+
     const leaveRoom = (): void => {
       send({ type: 'leave_room' });
     };
@@ -366,6 +407,7 @@ export function useGameSocket(): UseGameSocketResult {
 
     return {
       createRoom,
+      createAiRoom,
       joinRoom,
       watchRoom,
       quickMatch,
@@ -373,6 +415,9 @@ export function useGameSocket(): UseGameSocketResult {
       ready,
       move,
       rematch,
+      resign,
+      undoRequest,
+      undoResponse,
       leaveRoom,
       chat,
       notify,

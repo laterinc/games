@@ -21,11 +21,13 @@ from .protocol import (
     ProtocolError,
     error_code_message,
     now_ms,
+    require_bool,
     require_int,
     require_str,
     optional_str,
     validate_chat_text,
     validate_color,
+    validate_mode,
     validate_player_name,
     validate_room_name,
     validate_visibility,
@@ -215,6 +217,14 @@ class MessageDispatcher:
             await self._manager.move(connection.player_id, row=row, col=col)
         elif msg_type == "rematch":
             await self._manager.rematch(connection.player_id)
+        elif msg_type == "resign":
+            await self._manager.resign(connection.player_id)
+        elif msg_type == "undo_request":
+            await self._manager.undo_request(connection.player_id)
+        elif msg_type == "undo_response":
+            await self._manager.undo_response(
+                connection.player_id, accept=require_bool(payload, "accept")
+            )
         elif msg_type == "leave_room":
             await self._manager.leave_room(connection.player_id)
         elif msg_type == "chat":
@@ -237,6 +247,9 @@ class MessageDispatcher:
 
         await self._manager.mark_connected(player.id)
         await connection.send(_welcome_message(player, reconnected=True))
+        await connection.send(
+            {"type": "records", "records": self._manager.player_records(player.id)}
+        )
         room = self._manager.room_snapshot_for(player.id)
         if room is not None:
             await connection.send({"type": "room", "room": room})
@@ -248,12 +261,14 @@ class MessageDispatcher:
         room_name = validate_room_name(optional_str(payload, "roomName", "") or "")
         visibility = validate_visibility(optional_str(payload, "visibility", "public") or "public")
         color = validate_color(optional_str(payload, "color", "black") or "black")
+        mode = validate_mode(optional_str(payload, "mode", "pvp") or "pvp")
         await self._manager.create_room(
             connection.player_id,
             name=name,
             room_name=room_name,
             visibility=visibility,
             color=color,
+            mode=mode,
         )
 
     async def _handle_join_room(self, connection: ClientConnection, payload: dict[str, Any]) -> None:
@@ -307,6 +322,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         if restored is not None:
             await manager.mark_connected(player.id)
         await connection.send(_welcome_message(player, reconnected=restored is not None))
+        await connection.send(
+            {"type": "records", "records": manager.player_records(player.id)}
+        )
         if restored is not None:
             room = manager.room_snapshot_for(player.id)
             if room is not None:

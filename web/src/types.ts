@@ -6,9 +6,11 @@
 export type Color = 'black' | 'white';
 export type RoomVisibility = 'public' | 'private';
 export type RoomStatus = 'waiting' | 'playing' | 'finished';
-export type EndReason = 'five' | 'draw' | 'forfeit';
+export type EndReason = 'five' | 'draw' | 'forfeit' | 'resign';
 export type NoticeLevel = 'info' | 'success' | 'warn';
 export type CreateColor = Color | 'random';
+export type GameMode = 'pvp' | 'ai';
+export type MatchResult = 'win' | 'loss' | 'draw';
 
 export interface Point {
   row: number;
@@ -27,6 +29,23 @@ export interface Player {
   connected: boolean;
   ready: boolean;
   isHost: boolean;
+  /** 是否为人机对战中的电脑。 */
+  isBot: boolean;
+}
+
+export interface PendingUndo {
+  playerId: string;
+  name: string;
+}
+
+export interface MatchRecord {
+  result: MatchResult;
+  opponent: string;
+  mode: GameMode;
+  endedReason: EndReason | null;
+  moves: number;
+  myColor: Color;
+  at: number;
 }
 
 export interface Game {
@@ -62,6 +81,10 @@ export interface Room {
   players: Player[];
   spectators: number;
   rematchVotes: string[];
+  /** pvp 联机 / ai 人机。 */
+  mode: GameMode;
+  /** 待处理的悔棋请求。 */
+  pendingUndo: PendingUndo | null;
   game: Game;
   /** 最近 50 条聊天记录（协议 3.10，随快照下发）。 */
   chat?: ChatMessage[];
@@ -136,6 +159,11 @@ export interface PongMessage {
   t: number;
 }
 
+export interface RecordsMessage {
+  type: 'records';
+  records: MatchRecord[];
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | RoomMessage
@@ -143,7 +171,8 @@ export type ServerMessage =
   | ChatEventMessage
   | NoticeMessage
   | ErrorMessage
-  | PongMessage;
+  | PongMessage
+  | RecordsMessage;
 
 /* ------------------------------ 客户端 → 服务端 ------------------------------ */
 
@@ -159,6 +188,7 @@ export interface CreateRoomPayload {
   roomName?: string;
   visibility?: RoomVisibility;
   color?: CreateColor;
+  mode?: GameMode;
 }
 
 export interface JoinRoomPayload {
@@ -196,6 +226,19 @@ export interface RematchPayload {
   type: 'rematch';
 }
 
+export interface ResignPayload {
+  type: 'resign';
+}
+
+export interface UndoRequestPayload {
+  type: 'undo_request';
+}
+
+export interface UndoResponsePayload {
+  type: 'undo_response';
+  accept: boolean;
+}
+
 export interface LeaveRoomPayload {
   type: 'leave_room';
 }
@@ -219,6 +262,9 @@ export type ClientMessage =
   | ReadyPayload
   | MovePayload
   | RematchPayload
+  | ResignPayload
+  | UndoRequestPayload
+  | UndoResponsePayload
   | LeaveRoomPayload
   | ChatPayload
   | PingPayload;

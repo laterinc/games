@@ -22,10 +22,12 @@ ROOM_KEYS = {
     "players",
     "spectators",
     "rematchVotes",
+    "mode",
+    "pendingUndo",
     "game",
     "chat",
 }
-PLAYER_KEYS = {"id", "name", "color", "connected", "ready", "isHost"}
+PLAYER_KEYS = {"id", "name", "color", "connected", "ready", "isHost", "isBot"}
 GAME_KEYS = {
     "boardSize",
     "board",

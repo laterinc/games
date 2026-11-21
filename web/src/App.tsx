@@ -109,6 +109,9 @@ export default function App() {
             onMove={actions.move}
             onReady={actions.ready}
             onRematch={actions.rematch}
+            onResign={actions.resign}
+            onUndo={actions.undoRequest}
+            onUndoResponse={actions.undoResponse}
             onLeave={actions.leaveRoom}
             onChat={actions.chat}
             notify={actions.notify}
@@ -122,6 +125,8 @@ export default function App() {
             initialRoomCode={initialRoomCode}
             onQuickMatch={() => actions.quickMatch(nickname)}
             onCreateRoom={(options) => actions.createRoom({ name: nickname, ...options })}
+            onAiGame={(color) => actions.createAiRoom(nickname, color)}
+            records={state.records}
             onJoinRoom={(roomId) => actions.joinRoom(roomId, nickname)}
             onWatchRoom={(roomId) => actions.watchRoom(roomId, nickname)}
             onRefreshRooms={actions.refreshRooms}

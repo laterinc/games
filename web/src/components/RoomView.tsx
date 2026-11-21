@@ -17,6 +17,9 @@ interface RoomViewProps {
   onMove: (row: number, col: number) => void;
   onReady: () => void;
   onRematch: () => void;
+  onResign: () => void;
+  onUndo: () => void;
+  onUndoResponse: (accept: boolean) => void;
   onLeave: () => void;
   onChat: (text: string) => void;
   notify: (text: string, level?: ToastLevel) => void;
@@ -35,6 +38,13 @@ function describeResult(room: Room): ResultInfo | null {
     return {
       title: winner ? `${COLOR_LABEL[winner]}胜` : '对局结束',
       detail: '对手离开，本局按弃权结算',
+      tone: winner ?? 'neutral',
+    };
+  }
+  if (endedReason === 'resign') {
+    return {
+      title: winner ? `${COLOR_LABEL[winner]}胜` : '对局结束',
+      detail: '对方认输',
       tone: winner ?? 'neutral',
     };
   }
@@ -57,6 +67,9 @@ export function RoomView({
   onMove,
   onReady,
   onRematch,
+  onResign,
+  onUndo,
+  onUndoResponse,
   onLeave,
   onChat,
   notify,
@@ -72,9 +85,18 @@ export function RoomView({
   const game = room.game;
   const myTurn =
     connected && room.status === 'playing' && myColor !== null && game.currentTurn === myColor;
+  const isAiRoom = room.mode === 'ai';
+  const botPlayer = players.find((player) => player.isBot) ?? null;
+  const botThinking = room.status === 'playing' && botPlayer?.color === game.currentTurn;
+  const undoRequest = room.pendingUndo;
+  const iRequestedUndo = undoRequest !== null && undoRequest.playerId === playerId;
+  const opponentRequestedUndo = undoRequest !== null && undoRequest.playerId !== playerId;
+  const canUndo =
+    !spectator && connected && room.status === 'playing' && game.moves.length > 0 && undoRequest === null;
 
   const [pending, setPending] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [resignOpen, setResignOpen] = useState(false);
 
   // 服务端广播的棋谱一旦增长，说明落子已被确认。
   useEffect(() => {
@@ -133,7 +155,9 @@ export function RoomView({
     : room.status === 'playing'
       ? myTurn
         ? '轮到你落子'
-        : `等待${COLOR_LABEL[game.currentTurn]}落子`
+        : botThinking
+          ? '电脑思考中…'
+          : `等待${COLOR_LABEL[game.currentTurn]}落子`
       : '';
 
   return (
@@ -201,7 +225,9 @@ export function RoomView({
             <div className={`result-banner tone-${result.tone}`} role="status">
               <span className="result-title">{result.title}</span>
               {result.detail ? <span className="result-detail">{result.detail}</span> : null}
-              <span className="result-hint">{spectator ? '观战中' : '可在右侧投票再来一局'}</span>
+              <span className="result-hint">
+                {spectator ? '观战中' : isAiRoom ? '可在右侧再来一局' : '可在右侧投票再来一局'}
+              </span>
             </div>
           ) : null}
 
@@ -260,25 +286,86 @@ export function RoomView({
                 <p className="action-hint">把邀请链接发给好友，或等待大厅玩家加入。</p>
               </>
             ) : room.status === 'finished' ? (
-              <>
-                <p className="action-title">再来一局（{rematchVotes.length}/2）</p>
-                <button
-                  type="button"
-                  className="btn btn-primary btn-block"
-                  onClick={onRematch}
-                  disabled={!connected || iVotedRematch}
-                >
-                  {iVotedRematch ? '已投票，等待对手' : '再来一局'}
-                </button>
-                {votingNames ? <p className="action-hint">{votingNames} 已投票</p> : null}
-                <p className="action-hint">双方都投票后自动重开，并交换黑白。</p>
-              </>
+              isAiRoom ? (
+                <>
+                  <p className="action-title">人机对战结束</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-block"
+                    onClick={onRematch}
+                    disabled={!connected}
+                  >
+                    再来一局
+                  </button>
+                  <p className="action-hint">与电脑再战一局，自动交换黑白。</p>
+                </>
+              ) : (
+                <>
+                  <p className="action-title">再来一局（{rematchVotes.length}/2）</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary btn-block"
+                    onClick={onRematch}
+                    disabled={!connected || iVotedRematch}
+                  >
+                    {iVotedRematch ? '已投票，等待对手' : '再来一局'}
+                  </button>
+                  {votingNames ? <p className="action-hint">{votingNames} 已投票</p> : null}
+                  <p className="action-hint">双方都投票后自动重开，并交换黑白。</p>
+                </>
+              )
             ) : (
               <>
-                <p className="action-title">{myTurn ? '轮到你落子' : '等待对手落子'}</p>
+                <p className="action-title">
+                  {myTurn ? '轮到你落子' : botThinking ? '电脑思考中…' : '等待对手落子'}
+                </p>
                 <p className="action-hint">
                   {pending ? '已提交落子，等待服务端确认…' : '点击棋盘交叉点落子，仅轮到你时可下。'}
                 </p>
+                {opponentRequestedUndo ? (
+                  <div className="undo-panel">
+                    <p className="action-title">{undoRequest?.name ?? '对方'} 请求悔棋</p>
+                    <div className="action-row">
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        onClick={() => onUndoResponse(true)}
+                        disabled={!connected}
+                      >
+                        同意
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={() => onUndoResponse(false)}
+                        disabled={!connected}
+                      >
+                        拒绝
+                      </button>
+                    </div>
+                  </div>
+                ) : iRequestedUndo ? (
+                  <p className="action-hint">已发送悔棋请求，等待对方回应…</p>
+                ) : (
+                  <div className="action-row">
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      onClick={onUndo}
+                      disabled={!canUndo}
+                    >
+                      悔棋
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost danger"
+                      onClick={() => setResignOpen(true)}
+                      disabled={!connected}
+                    >
+                      认输
+                    </button>
+                  </div>
+                )}
               </>
             )}
             <button
@@ -294,6 +381,31 @@ export function RoomView({
           <ChatPanel messages={chat} onSend={onChat} myPlayerId={playerId} disabled={!connected} />
         </aside>
       </div>
+
+      <Modal
+        open={resignOpen}
+        title="确认认输"
+        onClose={() => setResignOpen(false)}
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost" onClick={() => setResignOpen(false)}>
+              继续对局
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              onClick={() => {
+                setResignOpen(false);
+                onResign();
+              }}
+            >
+              确认认输
+            </button>
+          </>
+        }
+      >
+        <p>认输后本局判负，对手获胜。确定要认输吗？</p>
+      </Modal>
 
       <Modal
         open={leaveOpen}

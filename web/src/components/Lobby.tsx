@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { CreateColor, RoomSummary, RoomVisibility, ToastLevel } from '../types';
+import type { CreateColor, MatchRecord, RoomSummary, RoomVisibility, ToastLevel } from '../types';
 import {
+  COLOR_LABEL,
   CREATE_COLOR_LABEL,
   MAX_NICKNAME_LENGTH,
   MAX_ROOM_NAME_LENGTH,
@@ -20,10 +21,26 @@ interface LobbyProps {
     visibility: RoomVisibility;
     color: CreateColor;
   }) => void;
+  onAiGame: (color: CreateColor) => void;
+  records: MatchRecord[];
   onJoinRoom: (roomId: string) => void;
   onWatchRoom: (roomId: string) => void;
   onRefreshRooms: () => void;
   notify: (text: string, level?: ToastLevel) => void;
+}
+
+const RECORD_RESULT_LABEL = { win: '胜', loss: '负', draw: '和' } as const;
+
+function formatRecordTime(at: number): string {
+  if (!Number.isFinite(at) || at <= 0) return '';
+  const date = new Date(at);
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 }
 
 const COLOR_OPTIONS: Array<{ value: CreateColor; label: string }> = [
@@ -48,12 +65,16 @@ export function Lobby({
   initialRoomCode,
   onQuickMatch,
   onCreateRoom,
+  onAiGame,
+  records,
   onJoinRoom,
   onWatchRoom,
   onRefreshRooms,
   notify,
 }: LobbyProps) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiColor, setAiColor] = useState<CreateColor>('black');
   const [roomName, setRoomName] = useState('');
   const [visibility, setVisibility] = useState<RoomVisibility>('public');
   const [color, setColor] = useState<CreateColor>('black');
@@ -83,6 +104,12 @@ export function Lobby({
     }
     onCreateRoom({ roomName: roomName.trim(), visibility, color });
     setCreateOpen(false);
+  };
+
+  const handleAiStart = (): void => {
+    if (!canStart) return;
+    onAiGame(aiColor);
+    setAiOpen(false);
   };
 
   const handleJoin = (event: FormEvent<HTMLFormElement>): void => {
@@ -146,6 +173,14 @@ export function Lobby({
               disabled={!canStart}
             >
               创建房间
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-large"
+              onClick={() => setAiOpen(true)}
+              disabled={!canStart}
+            >
+              人机对战
             </button>
           </div>
           {!connected ? <p className="hint-warn">正在连接服务器，连接成功后才能开始对局。</p> : null}
@@ -277,6 +312,34 @@ export function Lobby({
         </div>
       </div>
 
+      <div className="card glass records-card">
+        <header className="card-header">
+          <div>
+            <h2>最近战绩</h2>
+            <p className="card-sub">按当前浏览器身份保存最近 10 局，刷新/重开页面仍在</p>
+          </div>
+        </header>
+        {records.length === 0 ? (
+          <p className="rooms-empty">还没有对局记录，来一局吧。</p>
+        ) : (
+          <ul className="record-list">
+            {records.map((record, index) => (
+              <li key={`${record.at}-${index}`} className="record-row">
+                <span className={`record-result result-${record.result}`}>
+                  {RECORD_RESULT_LABEL[record.result]}
+                </span>
+                <span className="record-opponent">
+                  {record.mode === 'ai' ? '人机 · 电脑' : `对手 ${record.opponent || '棋友'}`}
+                </span>
+                <span className="record-meta">
+                  {COLOR_LABEL[record.myColor]} · {record.moves} 手 · {formatRecordTime(record.at)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <Modal
         open={createOpen}
         title="创建房间"
@@ -338,6 +401,41 @@ export function Lobby({
                 className={`segmented-item${color === option.value ? ' is-active' : ''}`}
                 aria-pressed={color === option.value}
                 onClick={() => setColor(option.value)}
+              >
+                <span className={`mini-stone stone-${option.value === 'random' ? 'random' : option.value}`} aria-hidden="true" />
+                <span className="segmented-label">{option.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={aiOpen}
+        title="人机对战"
+        onClose={() => setAiOpen(false)}
+        footer={
+          <>
+            <button type="button" className="btn btn-ghost" onClick={() => setAiOpen(false)}>
+              取消
+            </button>
+            <button type="button" className="btn btn-primary" onClick={handleAiStart} disabled={!canStart}>
+              开始对局
+            </button>
+          </>
+        }
+      >
+        <p className="action-hint">与电脑对弈，无需等待对手；电脑执相反颜色，黑棋先行。</p>
+        <div className="field">
+          <span className="field-label">执子颜色</span>
+          <div className="segmented segmented-three" role="group" aria-label="人机对战执子颜色">
+            {COLOR_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`segmented-item${aiColor === option.value ? ' is-active' : ''}`}
+                aria-pressed={aiColor === option.value}
+                onClick={() => setAiColor(option.value)}
               >
                 <span className={`mini-stone stone-${option.value === 'random' ? 'random' : option.value}`} aria-hidden="true" />
                 <span className="segmented-label">{option.label}</span>

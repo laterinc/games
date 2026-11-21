@@ -13,7 +13,7 @@ import secrets
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from . import game, protocol
+from . import ai, game, protocol
 from .protocol import ErrorCode, ProtocolError, now_ms
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,10 @@ _ROOM_ID_LENGTH = 6
 _CHAT_ID_PREFIX = "m_"
 #: 单个房间最多观战人数（防止被当成聊天室滥用）
 MAX_SPECTATORS = 20
+#: 每个玩家保留的最近战绩条数
+MAX_RECORDS = 10
+#: 人机对战时电脑落子的思考时间（秒）
+AI_DELAY_SECONDS = 0.45
 
 
 class ConnectionHub(Protocol):
@@ -46,6 +50,8 @@ class Player:
     connected: bool = True
     ready: bool = False
     disconnect_epoch: int = 0
+    is_bot: bool = False
+    records: list[dict[str, Any]] = field(default_factory=list)
 
     def snapshot(self, *, is_host: bool) -> dict[str, Any]:
         return {
@@ -55,6 +61,7 @@ class Player:
             "connected": self.connected,
             "ready": self.ready,
             "isHost": is_host,
+            "isBot": self.is_bot,
         }
 
 
@@ -111,6 +118,11 @@ class Room:
     rematch_votes: list[str] = field(default_factory=list)
     chat: list[ChatEntry] = field(default_factory=list)
     chat_seq: int = 0
+    #: "pvp" 联机对战 / "ai" 人机对战
+    mode: str = "pvp"
+    ai_color: str | None = None
+    #: 待处理的悔棋请求：{"playerId": ..., "name": ...}
+    pending_undo: dict[str, Any] | None = None
 
     # -- 便捷属性 ---------------------------------------------------------
     def player(self, player_id: str) -> Player | None:
@@ -149,6 +161,7 @@ class RoomManager:
         self._player_room: dict[str, str] = {}
         self._spectator_room: dict[str, str] = {}
         self._disconnect_tasks: dict[str, asyncio.Task[None]] = {}
+        self._ai_tasks: dict[str, asyncio.Task[None]] = {}
 
     # ------------------------------------------------------------------
     # 身份
@@ -250,11 +263,15 @@ class RoomManager:
             task.cancel()
 
     def cancel_background_tasks(self) -> None:
-        """取消所有断线计时任务（应用关闭时调用）。"""
+        """取消所有断线计时与 AI 落子任务（应用关闭时调用）。"""
         for task in self._disconnect_tasks.values():
             if not task.done():
                 task.cancel()
         self._disconnect_tasks.clear()
+        for task in self._ai_tasks.values():
+            if not task.done():
+                task.cancel()
+        self._ai_tasks.clear()
 
     # ------------------------------------------------------------------
     # 房间操作
@@ -268,6 +285,7 @@ class RoomManager:
         room_name: str,
         visibility: str,
         color: str,
+        mode: str = "pvp",
     ) -> Room:
         async with self._lock:
             self._ensure_not_in_room(player_id)
@@ -291,6 +309,28 @@ class RoomManager:
             )
             self._rooms[room.id] = room
             self._player_room[player.id] = room.id
+
+            if mode == "ai":
+                room.name = room_name or f"{name} 人机对战"
+                room.visibility = "private"
+                room.mode = "ai"
+                bot_color = game.OPPOSITE_COLOR[player.color]
+                room.players.append(
+                    Player(
+                        id=f"bot_{secrets.token_hex(4)}",
+                        token="",
+                        name="电脑",
+                        color=bot_color,
+                        connected=True,
+                        is_bot=True,
+                    )
+                )
+                room.ai_color = bot_color
+                self._start_game_locked(room)
+                await self._broadcast_room(room)
+                self._schedule_ai_move(room)
+                return room
+
             await self._broadcast_room(room)
             await self._push_lobby()
             return room
@@ -356,7 +396,7 @@ class RoomManager:
     async def ready(self, player_id: str) -> Room:
         async with self._lock:
             room = self._require_room(player_id)
-            if room.status != "waiting":
+            if room.mode == "ai" or room.status != "waiting":
                 raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
             player = self._require_player(player_id)
             player.ready = not player.ready
@@ -378,35 +418,91 @@ class RoomManager:
             if room.status != "playing":
                 raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
             player = self._require_player(player_id)
-            if player.color != room.current_turn:
+            if player.is_bot or player.color != room.current_turn:
                 raise ProtocolError(ErrorCode.NOT_YOUR_TURN)
             if not game.is_empty(room.board, row, col):
                 raise ProtocolError(ErrorCode.INVALID_MOVE)
 
-            game.place(room.board, row, col, player.color)
-            now = now_ms()
-            move = Move(row=row, col=col, color=player.color, at=now)
-            room.moves.append(move)
-            room.last_move = move
-            room.updated_at = now
-
-            win_line = game.check_win(room.board, row, col)
-            if win_line is not None:
-                room.status = "finished"
-                room.winner = player.color
-                room.win_line = win_line
-                room.ended_reason = "five"
-                room.ended_at = now
-            elif game.is_board_full(room.board):
-                room.status = "finished"
-                room.winner = None
-                room.win_line = None
-                room.ended_reason = "draw"
-                room.ended_at = now
+            self._apply_move_locked(room, player, row, col)
+            await self._broadcast_room(room)
+            if room.status == "finished":
+                await self._send_records_to_room(room)
             else:
-                room.current_turn = game.OPPOSITE_COLOR[player.color]
+                self._schedule_ai_move(room)
+            return room
+
+    async def resign(self, player_id: str) -> Room:
+        """认输：对手获胜，endedReason=resign。"""
+        async with self._lock:
+            room = self._require_room(player_id)
+            player = self._require_player(player_id)
+            if player.is_bot or room.status != "playing":
+                raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
+            opponent = next((p for p in room.players if p.id != player.id), None)
+            if opponent is None:
+                raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
+            self._finish_game_locked(room, opponent.color, "resign")
+            await self._broadcast_room(room)
+            await self._send_records_to_room(room)
+            return room
+
+    async def undo_request(self, player_id: str) -> Room:
+        """请求悔棋；AI 房间直接由电脑同意。"""
+        async with self._lock:
+            room = self._require_room(player_id)
+            player = self._require_player(player_id)
+            if player.is_bot or room.status != "playing":
+                raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
+            if not room.moves:
+                raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE, "还没有落子，无法悔棋")
+            if room.pending_undo is not None:
+                if room.pending_undo["playerId"] == player.id:
+                    await self._broadcast_room(room)
+                    return room
+                raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE, "对方已发起悔棋请求")
+
+            if room.mode == "ai":
+                self._apply_undo_locked(room)
+                await self._broadcast_room(room)
+                await self._hub.send_to_player(
+                    player.id, {"type": "notice", "level": "info", "text": "电脑同意悔棋"}
+                )
+                self._schedule_ai_move(room)
+                return room
+
+            room.pending_undo = {"playerId": player.id, "name": player.name}
+            room.updated_at = now_ms()
+            await self._broadcast_room(room)
+            return room
+
+    async def undo_response(self, player_id: str, *, accept: bool) -> Room:
+        """回应对方的悔棋请求。"""
+        async with self._lock:
+            room = self._require_room(player_id)
+            player = self._require_player(player_id)
+            pending = room.pending_undo
+            if pending is None:
+                raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE, "没有待处理的悔棋请求")
+            if pending["playerId"] == player.id:
+                raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE, "不能回应自己的悔棋请求")
+            requester = room.player(pending["playerId"])
+            if requester is None:
+                room.pending_undo = None
+                raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE, "对方已离开房间")
+
+            if accept:
+                self._apply_undo_locked(room)
+                text = "对方同意悔棋"
+            else:
+                room.pending_undo = None
+                room.updated_at = now_ms()
+                text = "对方拒绝悔棋"
 
             await self._broadcast_room(room)
+            for member in (player, requester):
+                await self._hub.send_to_player(
+                    member.id, {"type": "notice", "level": "info", "text": text}
+                )
             return room
 
     async def rematch(self, player_id: str) -> Room:
@@ -414,6 +510,20 @@ class RoomManager:
             room = self._require_room(player_id)
             if room.status != "finished":
                 raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
+
+            if room.mode == "ai":
+                player = self._require_player(player_id)
+                if player.is_bot:
+                    raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
+                for member in room.players:
+                    member.color = game.OPPOSITE_COLOR[member.color]
+                bot = next((member for member in room.players if member.is_bot), None)
+                room.ai_color = bot.color if bot is not None else None
+                self._start_game_locked(room)
+                await self._broadcast_room(room)
+                self._schedule_ai_move(room)
+                return room
+
             if player_id not in room.rematch_votes:
                 room.rematch_votes.append(player_id)
             room.updated_at = now_ms()
@@ -514,7 +624,7 @@ class RoomManager:
         rooms = [
             room
             for room in self._rooms.values()
-            if room.visibility == "public" and room.status == "waiting"
+            if room.visibility == "public" and room.status == "waiting" and room.mode == "pvp"
         ]
         rooms.sort(key=lambda r: r.created_at)
         return [self._room_summary(room) for room in rooms]
@@ -530,6 +640,12 @@ class RoomManager:
 
     def is_spectator(self, player_id: str) -> bool:
         return player_id in self._spectator_room
+
+    def player_records(self, player_id: str) -> list[dict[str, Any]]:
+        player = self._players.get(player_id)
+        if player is None or player.is_bot:
+            return []
+        return [dict(record) for record in player.records]
 
     @property
     def room_count(self) -> int:
@@ -578,7 +694,138 @@ class RoomManager:
         room.started_at = now
         room.ended_at = None
         room.rematch_votes = []
+        room.pending_undo = None
         room.updated_at = now
+
+    # ------------------------------------------------------------------
+    # 内部：落子 / 终局 / 战绩 / 悔棋 / AI
+    # ------------------------------------------------------------------
+
+    def _apply_move_locked(self, room: Room, player: Player, row: int, col: int) -> None:
+        game.place(room.board, row, col, player.color)
+        now = now_ms()
+        move = Move(row=row, col=col, color=player.color, at=now)
+        room.moves.append(move)
+        room.last_move = move
+        room.updated_at = now
+        room.pending_undo = None
+
+        win_line = game.check_win(room.board, row, col)
+        if win_line is not None:
+            self._finish_game_locked(room, player.color, "five", win_line)
+        elif game.is_board_full(room.board):
+            self._finish_game_locked(room, None, "draw")
+        else:
+            room.current_turn = game.OPPOSITE_COLOR[player.color]
+
+    def _finish_game_locked(
+        self,
+        room: Room,
+        winner: str | None,
+        reason: str,
+        win_line: list[game.Coord] | None = None,
+    ) -> None:
+        now = now_ms()
+        room.status = "finished"
+        room.winner = winner
+        room.win_line = win_line
+        room.ended_reason = reason
+        room.ended_at = now
+        room.rematch_votes = []
+        room.pending_undo = None
+        room.updated_at = now
+        self._cancel_ai_task(room.id)
+        self._record_results_locked(room, reason, now)
+
+    def _record_results_locked(self, room: Room, reason: str, at: int) -> None:
+        for player in room.players:
+            if player.is_bot:
+                continue
+            opponent = next((p for p in room.players if p.id != player.id), None)
+            if room.winner is None:
+                result = "draw"
+            elif room.winner == player.color:
+                result = "win"
+            else:
+                result = "loss"
+            player.records.append(
+                {
+                    "result": result,
+                    "opponent": opponent.name if opponent is not None else "",
+                    "mode": room.mode,
+                    "endedReason": reason,
+                    "moves": len(room.moves),
+                    "myColor": player.color,
+                    "at": at,
+                }
+            )
+            if len(player.records) > MAX_RECORDS:
+                del player.records[: len(player.records) - MAX_RECORDS]
+
+    async def _send_records_to_room(self, room: Room) -> None:
+        for player in room.players:
+            if player.is_bot:
+                continue
+            await self._hub.send_to_player(
+                player.id,
+                {"type": "records", "records": [dict(record) for record in player.records]},
+            )
+
+    def _apply_undo_locked(self, room: Room) -> None:
+        self._cancel_ai_task(room.id)
+        if not room.moves:
+            return
+        removed = room.moves.pop()
+        room.board[removed.row][removed.col] = game.EMPTY
+        if room.mode == "ai" and removed.color == room.ai_color and room.moves:
+            # 人机对战：把电脑的应手和玩家自己的上一手一起撤回，回到玩家落子前
+            previous = room.moves.pop()
+            room.board[previous.row][previous.col] = game.EMPTY
+            room.current_turn = previous.color
+        else:
+            room.current_turn = removed.color
+        room.last_move = room.moves[-1] if room.moves else None
+        room.winner = None
+        room.win_line = None
+        room.ended_reason = None
+        room.ended_at = None
+        room.pending_undo = None
+        room.updated_at = now_ms()
+
+    def _cancel_ai_task(self, room_id: str) -> None:
+        task = self._ai_tasks.pop(room_id, None)
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _schedule_ai_move(self, room: Room) -> None:
+        self._cancel_ai_task(room.id)
+        if room.mode != "ai" or room.status != "playing":
+            return
+        if room.current_turn != room.ai_color:
+            return
+        self._ai_tasks[room.id] = asyncio.create_task(self._ai_move_after_delay(room.id))
+
+    async def _ai_move_after_delay(self, room_id: str) -> None:
+        try:
+            await asyncio.sleep(AI_DELAY_SECONDS)
+        except asyncio.CancelledError:
+            return
+        async with self._lock:
+            room = self._rooms.get(room_id)
+            if room is None or room.status != "playing" or room.current_turn != room.ai_color:
+                return
+            self._ai_tasks.pop(room_id, None)
+            bot = next((p for p in room.players if p.is_bot), None)
+            if bot is None or room.ai_color is None:
+                return
+            target = ai.choose_move(room.board, room.ai_color)
+            if target is None:
+                self._finish_game_locked(room, None, "draw")
+            else:
+                self._apply_move_locked(room, bot, target[0], target[1])
+            await self._broadcast_room(room)
+            if room.status == "finished":
+                await self._send_records_to_room(room)
 
     async def _leave_locked(self, player_id: str, *, exclude: set[str] | None = None) -> None:
         room_id = self._player_room.pop(player_id, None)
@@ -591,6 +838,18 @@ class RoomManager:
         room.players = [p for p in room.players if p.id != player_id]
         room.updated_at = now_ms()
         opponent = room.players[0] if room.players else None
+
+        if room.mode == "ai":
+            # 人机房没有真人对手：玩家离开即销毁房间，电脑不占座
+            self._cancel_ai_task(room.id)
+            del self._rooms[room.id]
+            spectators = room.spectators
+            room.spectators = []
+            for spectator in spectators:
+                self._spectator_room.pop(spectator.id, None)
+                await self._hub.send_to_player(spectator.id, {"type": "room", "room": None})
+            await self._push_lobby(exclude=exclude)
+            return
 
         if opponent is None:
             # 房间无人：销毁，并通知观战者/清掉残留映射
@@ -643,6 +902,7 @@ class RoomManager:
         room.started_at = None
         room.ended_at = None
         room.rematch_votes = []
+        room.pending_undo = None
         room.updated_at = now
 
     def _join_room_locked(self, room: Room, player_id: str, name: str) -> None:
@@ -734,6 +994,8 @@ class RoomManager:
             ],
             "spectators": len(room.spectators),
             "rematchVotes": list(room.rematch_votes),
+            "mode": room.mode,
+            "pendingUndo": room.pending_undo,
             "game": {
                 "boardSize": room.board_size,
                 "board": [line[:] for line in room.board],

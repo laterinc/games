@@ -21,6 +21,7 @@ export function PlayerCard({ player, seatColor, isMe }: PlayerCardProps) {
       <div className="player-main">
         <div className="player-name-row">
           <span className="player-name">{player ? player.name : '等待加入…'}</span>
+          {player?.isBot ? <span className="badge badge-bot">电脑</span> : null}
           {player?.isHost ? <span className="badge badge-host">房主</span> : null}
           {isMe ? <span className="badge badge-me">我</span> : null}
         </div>
