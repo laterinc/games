@@ -77,7 +77,7 @@ def main() -> None:
         print(f"== UI 冒烟 {base}")
         a.goto(base, wait_until="networkidle")
         expect(a.locator(".home")).to_be_visible()
-        expect(a.locator(".game-card.is-planned")).to_contain_text("坦克大战")
+        expect(a.locator(".game-card.is-planned:not(.is-placeholder)")).to_contain_text("坦克大战")
         print("  ✓ 游戏中心首页加载（含开发中游戏卡片）")
         a.get_by_role("button", name="进入五子棋").click()
         a.wait_for_url(lambda url: url.rstrip("/").endswith("/gomoku"), timeout=10_000)
