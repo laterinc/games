@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 
 from fastapi.testclient import TestClient
@@ -576,55 +575,6 @@ def test_disconnect_grace_forfeits_via_websocket() -> None:
             assert waiting["hostId"] == finished["hostId"]
 
 
-def test_static_disabled_when_dist_missing(tmp_path: Path) -> None:
-    app = create_app(Settings(web_dist=tmp_path / "not-built"))
-    with TestClient(app) as client:
-        response = client.get("/")
-        assert response.status_code == 404
-        assert response.json()["error"] == "STATIC_NOT_BUILT"
-
-        deep = client.get("/some/spa/route")
-        assert deep.status_code == 404
-
-        assert client.get("/api/health").status_code == 200
-        assert client.get("/api/config").status_code == 200
-        unknown = client.get("/api/nope")
-        assert unknown.status_code == 404
-        assert unknown.json()["error"] == "NOT_FOUND"
-
-
-def test_static_serves_dist_with_spa_fallback(tmp_path: Path) -> None:
-    dist = tmp_path / "dist"
-    (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text("<html><body>gomoku</body></html>", encoding="utf-8")
-    (dist / "assets" / "app.js").write_text("console.log('app')", encoding="utf-8")
-
-    app = create_app(Settings(web_dist=dist))
-    with TestClient(app) as client:
-        index = client.get("/")
-        assert index.status_code == 200
-        assert "gomoku" in index.text
-        assert "no-cache" in index.headers["cache-control"]
-
-        deep = client.get("/game/room-123")
-        assert deep.status_code == 200
-        assert "gomoku" in deep.text
-        assert "no-cache" in deep.headers["cache-control"]
-
-        asset = client.get("/assets/app.js")
-        assert asset.status_code == 200
-        assert "console.log" in asset.text
-        assert "max-age=31536000" in asset.headers["cache-control"]
-
-        unknown_api = client.get("/api/nope")
-        assert unknown_api.status_code == 404
-        assert unknown_api.headers["content-type"].startswith("application/json")
-        assert unknown_api.json()["error"] == "NOT_FOUND"
-
-        # /api 仍正常
-        assert client.get("/api/config").json()["boardSize"] == 15
-
-
 def test_websocket_origin_allowlist() -> None:
     """设置 ALLOWED_ORIGINS 时，只有白名单 Origin 能完成握手。"""
     settings = replace(Settings.from_env(), allowed_origins=("https://good.example",))
@@ -640,33 +590,3 @@ def test_websocket_origin_allowlist() -> None:
             assert exc.code == 1008
         else:  # pragma: no cover - 白名单失效时给出明确失败
             raise AssertionError("非白名单 Origin 不应完成 WebSocket 握手")
-
-
-def test_static_can_be_disabled_for_external_frontend(tmp_path: Path) -> None:
-    """SERVE_STATIC=0：后端只提供 API/WS，前端交给 Nginx/CDN。"""
-    app = create_app(Settings(web_dist=tmp_path / "dist", serve_static=False))
-    with TestClient(app) as client:
-        root = client.get("/")
-        assert root.status_code == 404
-        assert root.json()["error"] == "STATIC_DISABLED"
-        assert "SERVE_STATIC=0" in root.json()["message"]
-
-        spa = client.get("/some/spa/route")
-        assert spa.status_code == 404
-        assert spa.json()["error"] == "STATIC_DISABLED"
-
-        # API 与 WebSocket 不受影响
-        assert client.get("/api/health").status_code == 200
-        assert client.get("/api/config").status_code == 200
-        unknown = client.get("/api/nope")
-        assert unknown.status_code == 404
-        assert unknown.json()["error"] == "NOT_FOUND"
-
-
-def test_serve_static_env_switch(monkeypatch: Any) -> None:
-    monkeypatch.setenv("SERVE_STATIC", "0")
-    assert Settings.from_env().serve_static is False
-    monkeypatch.setenv("SERVE_STATIC", "1")
-    assert Settings.from_env().serve_static is True
-    monkeypatch.setenv("SERVE_STATIC", "false")
-    assert Settings.from_env().serve_static is False

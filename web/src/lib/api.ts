@@ -5,8 +5,9 @@
 import type { RoomSummary } from '../types';
 import { parseRoomListPayload } from './protocol';
 
-const RAW_API_BASE = import.meta.env.VITE_API_BASE ?? '';
-const API_BASE = RAW_API_BASE.replace(/\/+$/, '');
+const RAW_API_BASE = (import.meta.env.VITE_API_BASE ?? '').trim();
+// 所有请求路径都自带 /api；如果 base 末尾误写成 .../api，去掉避免 /api/api。
+const API_BASE = RAW_API_BASE.replace(/\/+$/, '').replace(/\/api$/i, '');
 
 export function apiUrl(path: string): string {
   const normalized = path.startsWith('/') ? path : `/${path}`;

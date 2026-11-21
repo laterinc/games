@@ -1,17 +1,14 @@
 """五子棋服务端环境变量配置。
 
-所有可调参数均来自环境变量（见仓库根 .env.example / gomoku/server/.env.example）。
+服务端只负责 REST 与 WebSocket；前端构建产物由 Nginx / CDN / Vite 托管，
+不在本进程内提供任何静态文件服务。
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 
-#: gomoku/ 项目根目录（server/app/config.py -> server/app -> server -> gomoku）
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_WEB_DIST = PROJECT_ROOT / "web" / "dist"
 DEFAULT_CORS_ORIGINS: tuple[str, ...] = (
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -38,36 +35,14 @@ def _env_float(name: str, default: float) -> float:
         raise ValueError(f"环境变量 {name} 必须是数字，当前为 {raw!r}") from exc
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    raw = os.getenv(name)
-    if raw is None or not raw.strip():
-        return default
-    value = raw.strip().lower()
-    if value in ("1", "true", "yes", "on"):
-        return True
-    if value in ("0", "false", "no", "off"):
-        return False
-    raise ValueError(f"环境变量 {name} 必须是布尔值（1/0/true/false），当前为 {raw!r}")
-
-
 def _env_csv(name: str) -> tuple[str, ...]:
     raw = os.getenv(name, "")
     return tuple(item.strip() for item in raw.split(",") if item.strip())
 
 
-def _env_path(name: str, default: Path) -> Path:
-    raw = os.getenv(name, "").strip()
-    if not raw:
-        return default
-    path = Path(raw).expanduser()
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-    return path
-
-
 @dataclass(frozen=True, slots=True)
 class Settings:
-    """服务端运行配置，默认值与 PROTOCOL.md 一致。"""
+    """服务端运行配置。"""
 
     host: str = "0.0.0.0"
     port: int = 8765
@@ -77,9 +52,6 @@ class Settings:
     allowed_origins: tuple[str, ...] = ()
     room_ttl_seconds: float = 6 * 3600.0
     disconnect_grace_seconds: float = 60.0
-    web_dist: Path = DEFAULT_WEB_DIST
-    #: 是否由本服务托管 web/dist（单端口部署）。纯 API/WS 部署可设 SERVE_STATIC=0。
-    serve_static: bool = True
     app_name: str = "五子棋"
     version: str = "1.0.0"
 
@@ -91,7 +63,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        """从环境变量构建设置；未设置的变量使用协议默认值。"""
+        """从环境变量构建设置；未设置的变量使用默认值。"""
         raw_port = os.getenv("PORT") or os.getenv("APP_PORT")
         port = int(raw_port.strip()) if raw_port and raw_port.strip() else 8765
 
@@ -107,6 +79,4 @@ class Settings:
             allowed_origins=_env_csv("ALLOWED_ORIGINS"),
             room_ttl_seconds=_env_float("ROOM_TTL_SECONDS", 6 * 3600.0),
             disconnect_grace_seconds=_env_float("DISCONNECT_GRACE_SECONDS", 60.0),
-            web_dist=_env_path("WEB_DIST", DEFAULT_WEB_DIST),
-            serve_static=_env_bool("SERVE_STATIC", True),
         )

@@ -259,7 +259,8 @@ finished ──(双方 rematch)──► playing（交换黑白）
 | GET | `/api/rooms` | 返回 `{"rooms":[...]}`，结构同 `rooms` 消息 |
 | GET | `/api/config` | 返回 `{"protocolVersion":1,"boardSize":15,"maxPlayers":2,"appName":"五子棋"}` |
 
-其余路径：SPA 静态资源兜底（找不到文件时返回 `index.html`；`/api/*` 未知路径返回 404 JSON）。
+后端只处理 `/api/*` 与 `/ws`；其他路径一律 404。前端页面/静态资源由 Nginx、CDN 或
+Vite 等外部静态服务器托管，后端不提供静态文件服务。
 
 ## 6. 实现约束
 

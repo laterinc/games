@@ -1,4 +1,4 @@
-"""FastAPI 应用装配：生命周期、REST、WebSocket 与静态托管。"""
+"""FastAPI 应用装配：生命周期、REST 与 WebSocket（不含静态文件服务）。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,6 @@ from fastapi.responses import JSONResponse
 from .config import Settings
 from .protocol import MAX_PLAYERS, PROTOCOL_VERSION, now_ms
 from .rooms import RoomManager
-from .static import register_static
 from .ws import ConnectionHub, router as ws_router
 
 logging.basicConfig(
@@ -55,11 +54,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         reaper = asyncio.create_task(_room_reaper(manager))
         logger.info(
-            "五子棋服务启动：boardSize=%d roomTtl=%ss grace=%ss webDist=%s",
+            "五子棋服务启动：boardSize=%d roomTtl=%ss grace=%ss（仅 API/WS，不含静态资源）",
             settings.board_size,
             settings.room_ttl_seconds,
             settings.disconnect_grace_seconds,
-            settings.web_dist,
         )
         try:
             yield
@@ -129,7 +127,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content={"error": "NOT_FOUND", "message": f"接口不存在：/api/{unknown_path}"},
         )
 
-    register_static(app, settings.web_dist, enabled=settings.serve_static)
     return app
 
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """端到端联机冒烟测试：真实 HTTP + 两个 WebSocket 客户端打完整对局。
 
-用法（先启动服务）：
+后端只提供 API/WS（前端静态资源不在后端），所以这里只验证 REST + WS。
+
+用法（先启动后端）：
     server/.venv/bin/python scripts/e2e.py --url http://127.0.0.1:8765
 
 需要 `websockets` 库（uvicorn[standard] 已自带）。
@@ -39,11 +41,6 @@ def http_json(url: str) -> dict[str, Any]:
     with urllib.request.urlopen(url, timeout=5) as resp:
         assert resp.status == 200, resp.status
         return json.loads(resp.read().decode("utf-8"))
-
-
-def http_text(url: str) -> tuple[int, str]:
-    with urllib.request.urlopen(url, timeout=5) as resp:
-        return resp.status, resp.read().decode("utf-8", "replace")
 
 
 class Client:
@@ -132,11 +129,6 @@ async def main() -> None:
     if board_size < 9:
         fail("boardSize 异常", config)
     ok(f"/api/config ok（棋盘 {board_size} 路，协议 v{config['protocolVersion']}）")
-
-    status, html = http_text(f"{base}/")
-    if status != 200 or 'id="root"' not in html:
-        fail("根路径未返回前端页面（请先 npm run build）", {"status": status, "head": html[:200]})
-    ok("静态首页 200 且包含 React 挂载点")
 
     c1, w1 = await connect(ws_url, "黑方")
     c2, w2 = await connect(ws_url, "白方")

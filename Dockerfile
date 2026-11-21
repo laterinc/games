@@ -1,31 +1,18 @@
 # syntax=docker/dockerfile:1
+#
+# 后端镜像：只运行 FastAPI（REST + WebSocket），不包含 Node、不提供静态文件。
+# 前端镜像见 Dockerfile.web（Nginx 托管 web/dist 并反代 /api、/ws）。
 
-# ---------- 阶段一：构建前端 ----------
-FROM node:18-alpine AS web-builder
-WORKDIR /build/web
-COPY web/package*.json ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
-COPY web/ ./
-# 前端 Vite 变量是构建期注入的；分域部署时用 --build-arg 传真实地址
-ARG VITE_API_BASE=""
-ARG VITE_WS_URL=""
-ENV VITE_API_BASE=$VITE_API_BASE \
-    VITE_WS_URL=$VITE_WS_URL
-RUN npm run build
-
-# ---------- 阶段二：运行时 ----------
 FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HOST=0.0.0.0 \
-    PORT=8765 \
-    WEB_DIST=/app/web/dist
+    PORT=8765
 
 WORKDIR /app/server
 COPY server/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY server/ ./
-COPY --from=web-builder /build/web/dist /app/web/dist
 
 EXPOSE 8765
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

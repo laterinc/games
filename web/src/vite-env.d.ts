@@ -11,6 +11,8 @@ interface ImportMetaEnv {
    * 填绝对地址且未设置 VITE_WS_URL 时，WebSocket 自动推导为 ws(s)://<该 host>/ws。
    */
   readonly VITE_API_BASE?: string;
+  /** 前端部署子路径，例如 /gomoku/；默认 /。 */
+  readonly VITE_BASE_PATH?: string;
 }
 
 interface ImportMeta {

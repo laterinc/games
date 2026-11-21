@@ -8,8 +8,10 @@
     python3 -m venv /tmp/pwenv && /tmp/pwenv/bin/pip install playwright
     （使用系统安装的 Chrome，无需 playwright install chromium）
 
-用法：
-    /tmp/pwenv/bin/python scripts/ui_smoke.py --url http://127.0.0.1:8765
+用法（后端不托管前端，需先起静态服务器 + 代理，如 Vite preview 4173）：
+    ./scripts/start.sh
+    cd web && npm run build && npm run preview
+    /tmp/pwenv/bin/python scripts/ui_smoke.py --url http://127.0.0.1:4173
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ def wait_moves(page: Page, count: int) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--url", default="http://127.0.0.1:8765")
+    parser.add_argument("--url", default="http://127.0.0.1:4173")
     parser.add_argument("--headed", action="store_true")
     args = parser.parse_args()
     base = args.url.rstrip("/")

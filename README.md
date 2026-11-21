@@ -4,16 +4,15 @@
 **后端 Python 3.11 + FastAPI + WebSocket**。服务端为唯一裁判，房间码邀请、
 快速匹配、准备开局、聊天、再来一局、断线重连全部可用。
 
-- 可选地由后端同端口托管前端构建产物（默认开启，`SERVE_STATIC=0` 可关闭）——
-  单端口部署时天然同源，没有 CORS / 跨域 WebSocket 问题；前端也可以交给 Nginx/CDN，
-  后端只做 API/WS。
+- **前后端职责分离**：Python 后端只提供 `/api` 与 `/ws`，不读写任何前端文件；
+  前端构建产物 `web/dist` 由 Nginx / CDN 托管（开发用 Vite）。后端进程不包含 Node、
+  不构建前端，也不做静态文件兜底。
 - 单进程内存房间，零数据库，零 Redis，部署成本极低。
 - 协议契约见 [`PROTOCOL.md`](./PROTOCOL.md)，前后端都按它实现。
 
 ```
-浏览器 ──HTTP / WS──► FastAPI (8765) ──► 房间内存状态
-                        │
-                        └─ 托管 web/dist 静态资源
+浏览器 ──静态资源──► Nginx / CDN（web/dist）
+   └──── /api、/ws ──► FastAPI (8765) ──► 房间内存状态
 ```
 
 ## 获取代码
@@ -49,20 +48,22 @@ cd gomoku
 gomoku/
 ├── PROTOCOL.md          # 前后端 WebSocket 协议契约（唯一事实源）
 ├── README.md
-├── Dockerfile           # 多阶段构建：Node 构建前端 → Python 运行
-├── docker-compose.yml
+├── Dockerfile           # 后端镜像（Python / uvicorn，只跑 API/WS）
+├── Dockerfile.web       # 前端镜像（Node 构建 → Nginx 托管 dist）
+├── deploy/nginx.container.conf  # 容器内 Nginx 配置（/api、/ws 反代）
+├── docker-compose.yml   # api + web 两个容器
 ├── .env.example
 ├── docs/screenshots/    # 界面截图（README 预览用）
 ├── scripts/
 │   ├── dev.sh           # 开发：后端 8765 + Vite 5173
-│   ├── start.sh         # 生产：单端口 8765
+│   ├── start.sh         # 生产：只启动后端 API/WS
 │   ├── e2e.py           # 端到端联机冒烟（真实 WebSocket 双人对局）
 │   └── ui_smoke.py      # 浏览器 UI 冒烟（可选，Playwright + 本机 Chrome）
-├── server/              # Python 后端
+├── server/              # Python 后端（无静态文件服务）
 │   ├── app/             # main / config / game / rooms / ws ...
 │   ├── tests/           # pytest：规则 + 房间 + WebSocket 全流程
 │   └── requirements.txt
-└── web/                 # React + TS 前端
+└── web/                 # React + TS 前端（独立构建、独立部署）
     ├── src/
     └── vite.config.ts
 ```
@@ -99,121 +100,24 @@ npm install
 npm run dev
 ```
 
-## 生产 / 公网部署（单端口）
+## 生产部署（前端 Nginx/CDN + 后端 API/WS）
+
+后端**只提供 `/api` 与 `/ws`**，不托管静态文件。生产环境用 Nginx（或 CDN）托管
+`web/dist`，并把 `/api`、`/ws` 反代到后端进程。
 
 ```bash
-# 在仓库根目录执行
-./scripts/start.sh          # 自动构建前端 + 建 venv + 启动 8765
+# 1) 构建前端（本地/CI 均可）
+cd web && npm ci && npm run build        # 产物：web/dist
+
+# 2) 后端（仓库根目录）
+cd ..
+cp server/.env.example server/.env       # 默认 HOST=127.0.0.1 PORT=8000
+./scripts/start.sh                       # 只启动 API/WS
+
+# 3) 把 web/dist 上传到服务器，例如 /www/wwwroot/gomoku/web/dist
 ```
 
-脚本等价于：
-
-```bash
-cd web && npm ci && npm run build
-cd ../server && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8765
-```
-
-构建完成后访问 `http://<服务器IP>:8765` 即可，静态页面、REST、WebSocket 全部同源。
-
-### 方式一：局域网直连
-
-后端默认已监听 `0.0.0.0`。确保防火墙/安全组放行 8765，然后访问
-`http://<局域网IP>:8765`。手机连同一 Wi-Fi 也能直接玩。
-
-### 方式二：公网隧道（最快，无需域名/证书，自动 HTTPS + WSS）
-
-```bash
-# Cloudflare Tunnel（免费、支持 WebSocket）
-cloudflared tunnel --url http://localhost:8765
-
-# 或 ngrok
-ngrok http 8765
-```
-
-把隧道给出的 `https://xxx.trycloudflare.com` 发给朋友即可。页面里点「复制邀请链接」
-会把 `?room=房间码` 带上，好友打开自动进入同一房间。
-
-> 隧道域名是临时的，重开会变；长期使用请用方式三。
-
-### 方式三：VPS + Nginx + 域名 + HTTPS（推荐长期）
-
-```nginx
-server {
-    listen 80;
-    server_name gomoku.example.com;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name gomoku.example.com;
-
-    ssl_certificate     /etc/letsencrypt/live/gomoku.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/gomoku.example.com/privkey.pem;
-
-    location / {
-        proxy_pass         http://127.0.0.1:8765;
-        proxy_http_version 1.1;
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-        # WebSocket 升级（/ws 必需）
-        proxy_set_header   Upgrade    $http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_read_timeout 3600s;
-    }
-}
-```
-
-证书：`sudo certbot --nginx -d gomoku.example.com`。Nginx 反代不需要改后端配置；
-WSS 由 `https` 页面自动推导。若前端被单独部署到别的域名，再设置后端的
-`CORS_ORIGINS` / `ALLOWED_ORIGINS`。
-
-用 systemd 守护：
-
-```ini
-# /etc/systemd/system/gomoku.service
-[Unit]
-Description=Gomoku game
-After=network.target
-
-[Service]
-WorkingDirectory=/opt/gomoku/server
-Environment=HOST=0.0.0.0
-Environment=PORT=8765
-Environment=WEB_DIST=/opt/gomoku/web/dist
-ExecStart=/opt/gomoku/server/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8765 --workers 1
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl enable --now gomoku
-```
-
-#### 方式三·B：Nginx 直接托管前端（后端只跑 API/WS）
-
-如果服务器上不想让 Python 进程读写前端文件（生产更常见），可以：
-
-1. 本机构建后上传，或在服务器上构建：
-
-```bash
-cd web && npm ci && npm run build     # 产物在 web/dist
-# 上传到服务器，例如 /www/wwwroot/gomoku/web/dist
-```
-
-2. 后端 `.env` 关闭静态托管，只跑 API/WS（仓库内 `server/.env.example` 默认就是这套取值）：
-
-```ini
-SERVE_STATIC=0
-HOST=127.0.0.1
-PORT=8000
-```
-
-3. Nginx 直接 serve `dist`，只把 `/api` 和 `/ws` 反代给后端：
+Nginx 示例（前端与后端同域，无需 CORS）：
 
 ```nginx
 server {
@@ -223,7 +127,7 @@ server {
     root  /www/wwwroot/gomoku/web/dist;
     index index.html;
 
-    # 前端 SPA：静态文件直出，找不到的路径回 index.html
+    # 前端 SPA：静态文件直出，未知路径回 index.html
     location / {
         try_files $uri $uri/ /index.html;
         add_header Cache-Control "no-cache" always;
@@ -254,27 +158,98 @@ server {
 }
 ```
 
-同域名（前端与 `/api`、`/ws` 同域）时不需要任何 CORS 配置；
-若前端部署在**另一个域名**（Vercel/Netlify/CDN），后端需设置
-`CORS_ORIGINS=https://前端域名`、`ALLOWED_ORIGINS=https://前端域名`，
-并在前端构建时注入 `VITE_API_BASE` / `VITE_WS_URL`（见「前端环境变量」一节）。
+证书：`sudo certbot --nginx -d gomoku.example.com`。
 
-> 后端**不会构建前端**：`web/dist` 只是被当作静态目录读取。没有 dist 时日志会打一条
-> WARN 并禁用静态托管，API/WS 不受影响；不想看到这条 WARN 就设 `SERVE_STATIC=0`。
+后端 systemd（单进程，只跑 API/WS）：
+
+```ini
+# /etc/systemd/system/gomoku-api.service
+[Unit]
+Description=Gomoku API/WS
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/gomoku/server
+Environment=HOST=127.0.0.1
+Environment=PORT=8000
+ExecStart=/opt/gomoku/server/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
 
 > ⚠️ 房间状态在进程内存中，**只能跑 1 个 worker / 1 个实例**；
-> 不要开 `--workers 4`，也不要多副本无 sticky。需要水平扩展时把房间状态换成
-> Redis 再谈多实例。
+> 需要水平扩展时把房间状态换成 Redis 再谈多实例。
 
-### 方式四：Docker
+### 本地验证生产形态
 
 ```bash
-# 在仓库根目录执行
-docker compose up -d --build
-# 或
-docker build -t gomoku .
-docker run -d --name gomoku -p 8765:8765 gomoku
+./scripts/start.sh                              # 终端 A：后端 8765
+cd web && npm run build && npm run preview      # 终端 B：4173（preview 代理 /api、/ws）
+# 打开 http://localhost:4173
 ```
+
+Vite preview 的代理配置在 `web/vite.config.ts` 的 `preview.proxy`。
+注意：preview 用的是**构建时**注入的地址——如果本机存在
+`web/.env.production.local`（真实域名），本地 preview 会去连线上后端；
+只做本地验证时请临时移开该文件或改用 `./scripts/dev.sh`。
+
+### 局域网 / 公网隧道（临时联调）
+
+```bash
+./scripts/dev.sh                                # 5173 前端 + 8765 后端
+cloudflared tunnel --url http://localhost:5173  # 或 ngrok http 5173
+```
+
+长期公网请用上面的 Nginx + 域名 + HTTPS。
+
+### 前后端分域部署（可选）
+
+前端在 Vercel/Netlify/CDN、后端在独立域名时：
+
+- 后端设置 `CORS_ORIGINS=https://前端域名`，建议同时设置
+  `ALLOWED_ORIGINS=https://前端域名`（WS 握手校验）；
+- 前端构建时注入 `VITE_API_BASE=https://api.example.com`（会自动推导 WS 地址），
+  或显式 `VITE_WS_URL=wss://api.example.com/ws`，见「前端环境变量」一节。
+
+如果站点是**子路径**部署（例如 `https://example.com/gomoku/`），还需要：
+
+```bash
+# web/.env.production.local
+VITE_BASE_PATH=/gomoku/
+VITE_API_BASE=https://example.com/gomoku      # 不带末尾 /api
+VITE_WS_URL=wss://example.com/gomoku/ws
+```
+
+```nginx
+# Nginx 对应配置（注意 location 末尾的 /）
+location /gomoku/ {
+    alias /www/wwwroot/gomoku/web/dist/;
+    try_files $uri $uri/ /gomoku/index.html;
+}
+location /gomoku/api/ { proxy_pass http://127.0.0.1:8000/api/; ... }
+location /gomoku/ws   {
+    proxy_pass http://127.0.0.1:8000/ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+### Docker
+
+`docker compose up -d --build` 构建两个容器：
+
+| 服务 | 内容 | 端口 |
+| --- | --- | --- |
+| `api` | Python 后端，只跑 uvicorn（无静态文件） | 内部 8765 |
+| `web` | Nginx + `web/dist`，`/api` `/ws` 反代到 `api` | 宿主 `8080:80` |
+
+打开 `http://<服务器>:8080`。分域构建可传 `--build-arg VITE_API_BASE=...`
+（见 `Dockerfile.web`），`docker-compose.yml` 也已透传。
+
+> 后端镜像不包含 Node，也不构建前端；前后端可独立构建、独立部署。
 
 ## 配置（环境变量）
 
@@ -289,8 +264,6 @@ docker run -d --name gomoku -p 8765:8765 gomoku
 | --- | --- | --- |
 | `HOST` | `0.0.0.0` | 监听地址，公网部署必须 `0.0.0.0` |
 | `PORT` | `8765` | 监听端口 |
-| `WEB_DIST` | `web/dist` | 前端静态产物目录；不存在时只提供 API/WS |
-| `SERVE_STATIC` | `1` | 是否由后端托管前端页面；`0` = 只提供 `/api` 与 `/ws`，前端交给 Nginx/CDN |
 | `BOARD_SIZE` | `15` | 棋盘路数（同时下发前端） |
 | `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | REST 允许跨域来源，逗号分隔；同源部署可不管 |
 | `ALLOWED_ORIGINS` | 空（放行） | WS 握手 Origin 白名单，公网建议设为你的域名 |
@@ -305,15 +278,16 @@ docker run -d --name gomoku -p 8765:8765 gomoku
 | --- | --- |
 | `web/.env.example` | 模板与写法说明 |
 | `web/.env.development` | `npm run dev` 使用（默认留空 = 5173 同源 + Vite 代理） |
-| `web/.env.production` | `npm run build` 使用（默认留空 = 同源单端口部署） |
+| `web/.env.production` | `npm run build` 使用（默认留空 = 同源部署） |
 | `web/.env.local` / `web/.env.production.local` | 本机覆盖，已在 `.gitignore`，不会提交 |
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `VITE_WS_URL` | 空（同源 `/ws`） | WebSocket 地址；支持 `wss://host/ws`、`/ws`、`host/ws` 三种写法 |
-| `VITE_API_BASE` | 空（同源） | REST 基地址（大厅断线兜底的 `/api/rooms`）；只配它时 WS 自动推导为 `ws(s)://<该 host>/ws` |
+| `VITE_API_BASE` | 空（同源） | 后端地址（不含末尾 `/api`）；只配它时 WS 自动推导为 `ws(s)://<host>/<路径前缀>/ws` |
+| `VITE_BASE_PATH` | `/` | 前端部署在子路径时必须设置，例如 `/gomoku/`（影响 JS/CSS 引用路径） |
 
-**默认什么都不用配**：单端口部署时页面 / REST / WS 全在当前域名下。
+**默认什么都不用配**：Nginx 把页面与 `/api`、`/ws` 放在同一域名时即同源。
 只有前后端分开部署（如前端 Vercel、后端独立域名）才需要覆盖：
 
 ```bash
@@ -331,8 +305,8 @@ VITE_API_BASE=https://gomoku-api.example.com \
 VITE_WS_URL=wss://gomoku-api.example.com/ws \
 npm run build
 
-# 方式三：Docker 构建参数
-docker build -t gomoku \
+# 方式三：Docker 构建参数（前端镜像）
+docker build -f Dockerfile.web -t gomoku-web \
   --build-arg VITE_API_BASE=https://gomoku-api.example.com \
   --build-arg VITE_WS_URL=wss://gomoku-api.example.com/ws .
 ```
@@ -346,10 +320,10 @@ docker build -t gomoku \
 ## 测试
 
 ```bash
-# 1) 后端单元 + WebSocket 集成测试（52 个用例）
+# 1) 后端单元 + WebSocket 集成测试（48 个用例）
 cd server && .venv/bin/python -m pytest -q
 
-# 2) 端到端：真实启动服务后，用两个 WebSocket 客户端打完整对局（14 项检查）
+# 2) 端到端：先启动后端（./scripts/start.sh），用两个 WebSocket 客户端打完整对局
 cd ..      # 回到仓库根目录
 server/.venv/bin/python scripts/e2e.py --url http://127.0.0.1:8765
 
@@ -357,12 +331,16 @@ server/.venv/bin/python scripts/e2e.py --url http://127.0.0.1:8765
 cd web && npx tsc --noEmit && npm run build
 ```
 
-浏览器 UI 冒烟（可选，需要本机 Chrome；不参与运行时依赖）：
+浏览器 UI 冒烟（可选，需要本机 Chrome；不参与运行时依赖）。
+后端不托管前端，本地跑 UI 冒烟用开发模式（Vite dev 会代理 `/api`、`/ws`）：
 
 ```bash
+# 终端 A：一键起后端 8765 + 前端 5173
+./scripts/dev.sh
+
+# 终端 B：跑 UI 冒烟
 python3 -m venv /tmp/pwenv && /tmp/pwenv/bin/pip install playwright
-# 在仓库根目录执行
-/tmp/pwenv/bin/python scripts/ui_smoke.py --url http://127.0.0.1:8765
+/tmp/pwenv/bin/python scripts/ui_smoke.py --url http://127.0.0.1:5173
 ```
 
 它会开两个独立浏览器上下文，真实走完「建房 → 邀请链接加入 → 双方准备 →

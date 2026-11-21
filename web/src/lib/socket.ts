@@ -28,12 +28,30 @@ function wsProtocol(): string {
  * 解析 WebSocket 地址。优先级：
  * 1. VITE_WS_URL（wss://host/ws、/ws、host/ws 均可）；
  * 2. VITE_API_BASE 为绝对地址时，自动推导 `ws(s)://<api-host>/ws`；
- * 3. 同源 `ws(s)://<当前页面 host>/ws`（生产单端口 / 开发 Vite 代理的默认形态）。
+ * 3. 同源 `ws(s)://<当前页面 host>/ws`（生产同域反代 / 开发 Vite 代理的默认形态）。
  */
+function toWsUrl(value: string): string | null {
+  // 允许误写 http(s)://：自动换成 ws(s)://；路径为空时补 /ws。
+  if (!/^https?:\/\//i.test(value)) return null;
+  try {
+    const url = new URL(value);
+    const protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    const path =
+      url.pathname && url.pathname !== '/'
+        ? url.pathname.replace(/\/+$/, '')
+        : '/ws';
+    return `${protocol}//${url.host}${path}`;
+  } catch {
+    return null;
+  }
+}
+
 function resolveSocketUrl(configured?: string, apiBase?: string): string {
   const value = (configured ?? '').trim();
   if (value) {
     if (value.startsWith('ws://') || value.startsWith('wss://')) return value;
+    const fromHttp = toWsUrl(value);
+    if (fromHttp) return fromHttp;
     if (value.startsWith('/')) return `${wsProtocol()}//${window.location.host}${value}`;
     return `${wsProtocol()}//${value.replace(/^\/+/, '')}`;
   }
@@ -41,9 +59,14 @@ function resolveSocketUrl(configured?: string, apiBase?: string): string {
   const base = (apiBase ?? '').trim();
   if (/^https?:\/\//i.test(base)) {
     try {
-      const apiOrigin = new URL(base);
-      const protocol = apiOrigin.protocol === 'https:' ? 'wss:' : 'ws:';
-      return `${protocol}//${apiOrigin.host}/ws`;
+      const apiUrl = new URL(base);
+      const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+      // 站点部署在子路径（如 /gomoku）时，WS 也挂在同一前缀下
+      const prefix = apiUrl.pathname
+        .replace(/\/+$/, '')
+        .replace(/\/api$/i, '');
+      const path = prefix && prefix !== '/' ? `${prefix}/ws` : '/ws';
+      return `${protocol}//${apiUrl.host}${path}`;
     } catch {
       /* 非法 URL：退回同源 */
     }

@@ -1,19 +1,31 @@
 services:
-  gomoku:
-    build:
-      context: .
-      args:
-        # 分域部署时在仓库根目录 .env（或 shell 环境）里设置
-        VITE_API_BASE: ${VITE_API_BASE:-}
-        VITE_WS_URL: ${VITE_WS_URL:-}
-    image: gomoku:latest
-    container_name: gomoku
-    ports:
-      - "8765:8765"
+  api:
+    build: .
+    image: gomoku-api:latest
+    container_name: gomoku-api
     environment:
       HOST: 0.0.0.0
       PORT: "8765"
       BOARD_SIZE: "15"
-      # 公网域名部署时建议填上（例如 https://gomoku.example.com）
-      ALLOWED_ORIGINS: ""
+      # 同域（默认）无需 CORS；前后端分域时填前端域名
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    expose:
+      - "8765"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        # 分域部署时在仓库根目录 .env（或 shell 环境）里设置
+        VITE_API_BASE: ${VITE_API_BASE:-}
+        VITE_WS_URL: ${VITE_WS_URL:-}
+    image: gomoku-web:latest
+    container_name: gomoku-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
     restart: unless-stopped
