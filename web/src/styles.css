@@ -2778,3 +2778,93 @@ button {
     max-width: none;
   }
 }
+
+/* ---------- 最近战绩：与卡片内边距对齐，避免贴边 ---------- */
+.records-card {
+  padding: clamp(16px, 2.4vw, 24px);
+}
+
+.records-head {
+  gap: 12px;
+}
+
+.record-list {
+  margin: 14px -8px 0;
+  padding: 0 8px 2px;
+  max-height: 330px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(233, 180, 95, 0.35) transparent;
+}
+
+.record-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.record-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(233, 180, 95, 0.28);
+}
+
+.record-row {
+  padding: 10px 8px;
+  margin: 0;
+  border-radius: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+  transition: background 0.18s ease;
+}
+
+.record-row:last-child {
+  border-bottom: none;
+  padding-bottom: 12px;
+}
+
+.record-row:hover {
+  background: rgba(255, 255, 255, 0.032);
+}
+
+.record-time {
+  padding-right: 2px;
+}
+
+.record-empty {
+  margin: 14px 0 2px;
+}
+
+@media (max-width: 640px) {
+  .records-card {
+    padding: 16px;
+  }
+
+  .record-list {
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .record-row {
+    padding: 9px 4px;
+  }
+}
+
+/* 战绩列表与标题左对齐，避免行内容比标题多缩进 */
+.record-list {
+  margin: 14px -8px 0;
+  padding: 0;
+}
+
+.record-row {
+  padding: 10px 8px;
+}
+
+@media (max-width: 640px) {
+  .record-list {
+    margin: 12px -8px 0;
+    padding: 0;
+  }
+
+  .record-row {
+    padding: 9px 8px;
+  }
+}
