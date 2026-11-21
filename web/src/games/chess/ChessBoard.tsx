@@ -198,6 +198,37 @@ function drawPiece(
   ctx.restore();
 }
 
+/** 上一步起点：虚线棋子轮廓 + 淡淡的原棋子字。 */
+function drawGhostPiece(
+  ctx: CanvasRenderingContext2D,
+  piece: string,
+  cx: number,
+  cy: number,
+): void {
+  const color = pieceColor(piece);
+  const glyph = PIECE_GLYPH[piece] ?? piece;
+  const fontSize = Math.round(CELL * 0.48);
+  ctx.save();
+  ctx.globalAlpha = 0.34;
+  ctx.setLineDash([6, 5]);
+  ctx.lineWidth = 1.8;
+  ctx.strokeStyle = 'rgba(233, 180, 95, 0.8)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, PIECE_RADIUS - 2, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = color === 'red' ? 'rgba(165, 39, 26, 0.85)' : 'rgba(32, 38, 45, 0.8)';
+  ctx.font = `700 ${fontSize}px "STKaiti", "KaiTi", "Songti SC", serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  const metrics = ctx.measureText(glyph);
+  const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.88;
+  const descent = metrics.actualBoundingBoxDescent || fontSize * 0.12;
+  ctx.fillText(glyph, cx, cy + (ascent - descent) / 2);
+  ctx.restore();
+}
+
 function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -308,28 +339,6 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
     ctx.drawImage(base, 0, 0);
     ctx.setTransform(scale, 0, 0, scale, 0, 0);
 
-    // 上一步起止点
-    if (game.lastMove) {
-      for (const point of [game.lastMove.from, game.lastMove.to]) {
-        const display = toDisplay(point);
-        const x = MARGIN + display.col * CELL;
-        const y = MARGIN + display.row * CELL;
-        ctx.strokeStyle = 'rgba(233, 180, 95, 0.9)';
-        ctx.lineWidth = 2;
-        const r = PIECE_RADIUS + 6;
-        for (const [sx, sy] of [
-          [-1, -1],
-          [1, -1],
-          [-1, 1],
-          [1, 1],
-        ]) {
-          ctx.beginPath();
-          ctx.arc(x + sx * r, y + sy * r, 8, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-      }
-    }
-
     // 棋子
     for (let row = 0; row < ROWS; row += 1) {
       for (let col = 0; col < COLS; col += 1) {
@@ -345,6 +354,30 @@ function ChessBoardComponent({ game, myColor, interactive, onMove }: ChessBoardP
           checked: isCheckedKing,
         });
       }
+    }
+
+    // 上一步：起点虚线棋子轮廓，落点棋子加虚线选中圈
+    if (game.lastMove) {
+      const from = toDisplay(game.lastMove.from);
+      const to = toDisplay(game.lastMove.to);
+      const fromX = MARGIN + from.col * CELL;
+      const fromY = MARGIN + from.row * CELL;
+      const toX = MARGIN + to.col * CELL;
+      const toY = MARGIN + to.row * CELL;
+      const lastMove = game.moves.length > 0 ? game.moves[game.moves.length - 1] : null;
+
+      if (lastMove) {
+        drawGhostPiece(ctx, lastMove.piece, fromX, fromY);
+      }
+
+      ctx.save();
+      ctx.setLineDash([6, 5]);
+      ctx.lineWidth = 2.4;
+      ctx.strokeStyle = 'rgba(233, 180, 95, 0.85)';
+      ctx.beginPath();
+      ctx.arc(toX, toY, PIECE_RADIUS + 4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
 
     // 合法落点提示
