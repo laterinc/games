@@ -2859,3 +2859,9 @@ button {
     padding: 9px 8px;
   }
 }
+
+/* 棋盘宽度与同卡片的回合条/结果横幅对齐 */
+.board-stage {
+  width: 100%;
+  max-width: none;
+}
