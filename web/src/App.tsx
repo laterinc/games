@@ -97,8 +97,8 @@ export default function App() {
     document.title = state.room
       ? `${state.room.name} · ${GAME_LABEL[state.room.gameType]}`
       : route.name === 'home'
-        ? '棋类游戏 · 游戏中心'
-        : `棋类游戏 · ${GAME_LABEL[gameType]}`;
+        ? '游戏中心'
+        : `游戏中心 · ${GAME_LABEL[gameType]}`;
   }, [state.room, gameType, route.name]);
 
   const disconnected = state.status !== 'open';
@@ -128,12 +128,22 @@ export default function App() {
             navigate(homePath());
           }}
         >
-          <span className="brand-mark" aria-hidden="true">
-            <span className="brand-stone black" />
-            <span className="brand-stone white" />
-          </span>
-          <span className="brand-name">棋类游戏</span>
-          <span className="brand-sub">游戏中心</span>
+          <svg className="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+            <defs>
+              <linearGradient id="brand-tile" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stopColor="#e0b273" />
+                <stop offset="0.55" stopColor="#b27c3f" />
+                <stop offset="1" stopColor="#8c5c2b" />
+              </linearGradient>
+            </defs>
+            <rect width="40" height="40" rx="12" fill="url(#brand-tile)" />
+            <rect x="8" y="8" width="10" height="10" rx="3" fill="#121820" />
+            <rect x="22" y="8" width="10" height="10" rx="3" fill="#f6ead4" />
+            <rect x="8" y="22" width="10" height="10" rx="3" fill="#f6ead4" />
+            <rect x="22" y="22" width="10" height="10" rx="3" fill="#b53722" />
+          </svg>
+          <span className="brand-name">游戏中心</span>
+          <span className="brand-sub">好友休闲</span>
         </a>
         <span className={`conn-pill ${state.status}`}>
           <span className="conn-dot" aria-hidden="true" />

@@ -1,4 +1,4 @@
-# 棋类游戏 · 联机对战（React + TypeScript / Python）
+# 游戏中心 · 好友休闲娱乐（React + TypeScript / Python）
 
 一个可外网连接的**多游戏联机大厅**：目前包含 **五子棋** 与 **中国象棋**，前端 React 18 + TypeScript + Vite，后端 Python 3.11 + FastAPI + WebSocket。服务端是唯一裁判，前端只做展示与乐观交互。
 
