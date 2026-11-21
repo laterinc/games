@@ -205,7 +205,7 @@ cd web && npm ci && npm run build     # 产物在 web/dist
 # 上传到服务器，例如 /www/wwwroot/gomoku/web/dist
 ```
 
-2. 后端 `.env` 关闭静态托管，只跑 API/WS：
+2. 后端 `.env` 关闭静态托管，只跑 API/WS（仓库内 `server/.env.example` 默认就是这套取值）：
 
 ```ini
 SERVE_STATIC=0
