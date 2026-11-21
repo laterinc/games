@@ -1,0 +1,36 @@
+/** @type {import('prettier').Config & import('prettier-plugin-tailwindcss').PluginOptions} */
+module.exports = {
+    semi: true,
+    tabWidth: 4,
+    useTabs: false,
+    singleQuote: true,
+    jsxSingleQuote: false,
+    trailingComma: 'all',
+    printWidth: 100,
+    proseWrap: 'never',
+    endOfLine: 'auto',
+    bracketSpacing: true,
+
+    plugins: ['@trivago/prettier-plugin-sort-imports', 'prettier-plugin-tailwindcss'],
+
+    importOrder: [
+        '^react$',
+        '^react-dom$',
+        '^next$',
+        '^next/.+',
+        '<THIRD_PARTY_MODULES>',
+        '^@workspace/.+',
+        '^@later-matrix/ui/.+',
+        '^@/types/.+',
+        '^@/config/.+',
+        '^@/lib/.+',
+        '^@/hooks/.+',
+        '^@/components/.+',
+        '^@/registry/.+',
+        '^@/styles/.+',
+        '^@/app/.+',
+        '^[./]',
+    ],
+    importOrderSeparation: true,
+    importOrderSortSpecifiers: true,
+};
