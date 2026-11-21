@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""五子棋后端启动入口。
+"""棋类游戏后端启动入口。
 
 - **监听地址是进程参数**（不放进 .env）：`--host` / `--port`，与 uvicorn CLI 一致；
 - **应用配置读 .env**：BOARD_SIZE、CORS_ORIGINS、ALLOWED_ORIGINS 等；
@@ -53,7 +53,7 @@ def load_env_files() -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="五子棋后端（REST + WebSocket）")
+    parser = argparse.ArgumentParser(description="棋类游戏后端（REST + WebSocket）")
     parser.add_argument("--host", default="0.0.0.0", help="监听地址（默认 0.0.0.0）")
     parser.add_argument("--port", type=int, default=8765, help="监听端口（默认 8765）")
     parser.add_argument("--reload", action="store_true", help="开发热重载")

@@ -9,7 +9,9 @@ import type {
   ClientMessage,
   CreateColor,
   CreateRoomPayload,
+  GameType,
   JoinRoomPayload,
+  MoveInput,
   QuickMatchPayload,
   Room,
   MatchRecord,
@@ -102,17 +104,18 @@ function reducer(state: GameSocketState, action: ReducerAction): GameSocketState
 export interface GameActions {
   createRoom: (options: {
     name: string;
+    gameType: GameType;
     roomName: string;
     visibility: RoomVisibility;
     color: CreateColor;
   }) => void;
   joinRoom: (roomId: string, name: string) => void;
   watchRoom: (roomId: string, name: string) => void;
-  quickMatch: (name: string) => void;
+  quickMatch: (name: string, gameType?: GameType) => void;
   refreshRooms: () => void;
-  createAiRoom: (name: string, color?: CreateColor) => void;
+  createAiRoom: (name: string, gameType: GameType, color?: CreateColor) => void;
   ready: () => void;
-  move: (row: number, col: number) => void;
+  move: (input: MoveInput) => void;
   rematch: () => void;
   resign: () => void;
   undoRequest: () => void;
@@ -270,6 +273,7 @@ export function useGameSocket(): UseGameSocketResult {
   const actions = useMemo<GameActions>(() => {
     const createRoom = (options: {
       name: string;
+      gameType: GameType;
       roomName: string;
       visibility: RoomVisibility;
       color: CreateColor;
@@ -287,6 +291,7 @@ export function useGameSocket(): UseGameSocketResult {
       const payload: CreateRoomPayload = {
         type: 'create_room',
         name,
+        gameType: options.gameType,
         visibility: options.visibility,
         color: options.color,
       };
@@ -324,7 +329,11 @@ export function useGameSocket(): UseGameSocketResult {
       send(payload);
     };
 
-    const createAiRoom = (name: string, color: CreateColor = 'black'): void => {
+    const createAiRoom = (
+      name: string,
+      gameType: GameType,
+      color: CreateColor = gameType === 'chess' ? 'red' : 'black',
+    ): void => {
       const trimmedName = name.trim();
       if (!isValidNickname(trimmedName)) {
         pushToast('error', `昵称需为 1–${MAX_NICKNAME_LENGTH} 个字符`);
@@ -333,6 +342,7 @@ export function useGameSocket(): UseGameSocketResult {
       send({
         type: 'create_room',
         name: trimmedName,
+        gameType,
         roomName: '人机对战',
         visibility: 'private',
         color,
@@ -340,13 +350,17 @@ export function useGameSocket(): UseGameSocketResult {
       });
     };
 
-    const quickMatch = (name: string): void => {
+    const quickMatch = (name: string, gameType: GameType = 'gomoku'): void => {
       const trimmedName = name.trim();
       if (!isValidNickname(trimmedName)) {
         pushToast('error', `昵称需为 1–${MAX_NICKNAME_LENGTH} 个字符`);
         return;
       }
-      const payload: QuickMatchPayload = { type: 'quick_match', name: trimmedName };
+      const payload: QuickMatchPayload = {
+        type: 'quick_match',
+        name: trimmedName,
+        gameType,
+      };
       send(payload);
     };
 
@@ -370,9 +384,8 @@ export function useGameSocket(): UseGameSocketResult {
       send({ type: 'ready' });
     };
 
-    const move = (row: number, col: number): void => {
-      if (!Number.isInteger(row) || !Number.isInteger(col) || row < 0 || col < 0) return;
-      send({ type: 'move', row, col });
+    const move = (input: MoveInput): void => {
+      send({ type: 'move', ...input });
     };
 
     const rematch = (): void => {

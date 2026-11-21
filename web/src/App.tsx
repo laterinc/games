@@ -3,6 +3,8 @@ import { Lobby } from './components/Lobby';
 import { RoomView } from './components/RoomView';
 import { Toast } from './components/Toast';
 import { useGameSocket } from './hooks/useGameSocket';
+import type { GameType } from './types';
+import { GAME_LABEL } from './lib/protocol';
 import type { SocketStatus } from './lib/socket';
 import { loadNickname, randomNickname, saveNickname } from './lib/session';
 import { unlockAudio } from './lib/sound';
@@ -14,6 +16,15 @@ const STATUS_TEXT: Record<SocketStatus, string> = {
   closed: '连接已关闭',
   replaced: '该身份已在其他窗口建立连接，本页已暂停同步（刷新页面可重新接管）',
 };
+
+function readGameFromUrl(): GameType {
+  try {
+    const raw = new URLSearchParams(window.location.search).get('game') ?? '';
+    return raw === 'chess' ? 'chess' : 'gomoku';
+  } catch {
+    return 'gomoku';
+  }
+}
 
 function readRoomCodeFromUrl(): string {
   try {
@@ -30,6 +41,7 @@ function readRoomCodeFromUrl(): string {
 export default function App() {
   const { state, actions } = useGameSocket();
   const [nickname, setNickname] = useState(() => loadNickname() || randomNickname());
+  const [gameType, setGameType] = useState<GameType>(readGameFromUrl);
   const [initialRoomCode] = useState(readRoomCodeFromUrl);
   const syncedRoomRef = useRef<string | null>(null);
 
@@ -74,8 +86,26 @@ export default function App() {
   }, [state.room]);
 
   useEffect(() => {
-    document.title = state.room ? `${state.room.name} · 五子棋` : '五子棋 · 联机对战';
-  }, [state.room]);
+    document.title = state.room
+      ? `${state.room.name} · ${GAME_LABEL[state.room.gameType]}`
+      : `棋类游戏 · ${GAME_LABEL[gameType]}`;
+  }, [state.room, gameType]);
+
+  // 进入房间时以房间实际游戏为准；URL 里保留 game 参数便于刷新
+  useEffect(() => {
+    if (state.room) setGameType(state.room.gameType);
+  }, [state.room?.gameType]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('game') === gameType) return;
+    params.set('game', gameType);
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}?${params.toString()}${window.location.hash}`,
+    );
+  }, [gameType]);
 
   const disconnected = state.status !== 'open';
   const isSpectator =
@@ -101,8 +131,8 @@ export default function App() {
             <span className="brand-stone black" />
             <span className="brand-stone white" />
           </span>
-          <span className="brand-name">五子棋</span>
-          <span className="brand-sub">联机对战</span>
+          <span className="brand-name">棋类游戏</span>
+          <span className="brand-sub">五子棋 · 中国象棋</span>
         </div>
         <span className={`conn-pill ${state.status}`}>
           <span className="conn-dot" aria-hidden="true" />
@@ -134,10 +164,14 @@ export default function App() {
             onNicknameChange={setNickname}
             rooms={state.rooms}
             connected={state.status === 'open'}
+            gameType={gameType}
+            onGameTypeChange={setGameType}
             initialRoomCode={initialRoomCode}
-            onQuickMatch={() => actions.quickMatch(nickname)}
-            onCreateRoom={(options) => actions.createRoom({ name: nickname, ...options })}
-            onAiGame={(color) => actions.createAiRoom(nickname, color)}
+            onQuickMatch={() => actions.quickMatch(nickname, gameType)}
+            onCreateRoom={(options) =>
+              actions.createRoom({ name: nickname, gameType, ...options })
+            }
+            onAiGame={(color) => actions.createAiRoom(nickname, gameType, color)}
             records={state.records}
             onJoinRoom={(roomId) => actions.joinRoom(roomId, nickname)}
             onWatchRoom={(roomId) => actions.watchRoom(roomId, nickname)}
@@ -149,7 +183,7 @@ export default function App() {
 
       <Toast toasts={state.toasts} onDismiss={actions.dismissToast} />
 
-      <footer className="app-footer">五子棋协议 v1 · 服务端为唯一裁判</footer>
+      <footer className="app-footer">游戏协议 v2 · 服务端为唯一裁判</footer>
     </div>
   );
 }

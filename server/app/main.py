@@ -54,7 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         reaper = asyncio.create_task(_room_reaper(manager))
         logger.info(
-            "五子棋服务启动：boardSize=%d roomTtl=%ss grace=%ss（仅 API/WS，不含静态资源）",
+            "棋类游戏服务启动：boardSize=%d roomTtl=%ss grace=%ss（仅 API/WS，不含静态资源）",
             settings.board_size,
             settings.room_ttl_seconds,
             settings.disconnect_grace_seconds,
@@ -68,7 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except asyncio.CancelledError:
                 pass
             manager.cancel_background_tasks()
-            logger.info("五子棋服务已停止")
+            logger.info("棋类游戏服务已停止")
 
     app = FastAPI(
         title=settings.app_name,
@@ -102,8 +102,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
 
     @app.get("/api/rooms")
-    async def rooms() -> dict[str, Any]:
-        return {"rooms": manager.rooms_snapshot()}
+    async def rooms(game: str | None = None) -> dict[str, Any]:
+        return {"rooms": manager.rooms_snapshot(game)}
 
     @app.get("/api/config")
     async def config() -> dict[str, Any]:
@@ -112,6 +112,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "boardSize": settings.board_size,
             "maxPlayers": MAX_PLAYERS,
             "appName": settings.app_name,
+            "games": [
+                {
+                    "key": key,
+                    "name": manager.rules(key).name,
+                    "colors": list(manager.rules(key).colors),
+                    "createColors": list(manager.rules(key).create_colors),
+                }
+                for key in manager.game_types()
+            ],
         }
 
     @app.api_route(

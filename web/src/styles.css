@@ -1,5 +1,5 @@
 /* ==========================================================================
-   五子棋 · 联机对战 —— 纯 CSS 深色主题（无外链图片/字体，全部用渐变与内联 SVG）
+   棋类游戏 · 联机对战 —— 纯 CSS 深色主题（无外链图片/字体，全部用渐变与内联 SVG）
    ========================================================================== */
 
 :root {
@@ -2864,4 +2864,214 @@ button {
 .board-stage {
   width: 100%;
   max-width: none;
+}
+
+/* ---------- 多游戏：红棋色 / 游戏切换 / 中国象棋棋盘 ---------- */
+.mini-stone.stone-red,
+.stone-badge.stone-red {
+  background: radial-gradient(circle at 32% 28%, #ff8d7c, #c22b1b 62%, #7d160d);
+  box-shadow:
+    inset 0 -1px 2px rgba(80, 12, 4, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.turn-dot.turn-red {
+  background: radial-gradient(circle at 32% 28%, #ff8d7c, #c22b1b 66%, #7d160d);
+  box-shadow: 0 2px 6px rgba(120, 24, 8, 0.5);
+}
+
+.game-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-width: 420px;
+  margin: 14px 0 4px;
+}
+
+.game-switch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-muted);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.game-switch-item:hover {
+  border-color: rgba(233, 180, 95, 0.3);
+  color: var(--text);
+}
+
+.game-switch-item.is-active {
+  border-color: rgba(233, 180, 95, 0.62);
+  background: linear-gradient(140deg, rgba(233, 180, 95, 0.17), rgba(233, 180, 95, 0.05));
+  color: var(--text);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+}
+
+.game-switch-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.game-switch-icon.game-gomoku {
+  background: radial-gradient(circle at 30% 25%, #4c5663, #0b0f14);
+  color: #f1e6ce;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.game-switch-icon.game-chess {
+  background: radial-gradient(circle at 30% 25%, #ffd9a8, #b53722);
+  color: #5a140d;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-family: "STKaiti", "KaiTi", serif;
+}
+
+.game-switch-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.game-switch-copy strong {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.game-switch-copy small {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.hero-chess {
+  position: relative;
+  flex: 1;
+  min-height: 210px;
+  border-radius: 14px;
+  background:
+    repeating-linear-gradient(0deg, rgba(84, 51, 20, 0.28) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(90deg, rgba(84, 51, 20, 0.28) 0 1px, transparent 1px 44px),
+    radial-gradient(circle at 30% 20%, rgba(255, 241, 210, 0.22), transparent 60%),
+    linear-gradient(160deg, #d9ad74, #c49254 55%, #a9773d);
+  border: 1px solid rgba(72, 43, 15, 0.35);
+  box-shadow: inset 0 0 40px rgba(74, 41, 10, 0.35);
+  overflow: hidden;
+}
+
+.hero-chess-river {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-family: "STKaiti", "KaiTi", serif;
+  font-size: 13px;
+  letter-spacing: 0.35em;
+  color: rgba(78, 43, 12, 0.62);
+  white-space: nowrap;
+}
+
+.hero-chess-piece {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  font-family: "STKaiti", "KaiTi", serif;
+  font-size: 25px;
+  font-weight: 700;
+  background: radial-gradient(circle at 32% 26%, #fff8e8, #efdcba 62%, #d5b789);
+  box-shadow:
+    inset 0 0 0 1px rgba(100, 60, 25, 0.35),
+    0 5px 12px rgba(50, 28, 8, 0.4);
+}
+
+.hero-chess-piece.red {
+  color: #a5271a;
+  border: 2px solid rgba(150, 38, 26, 0.6);
+}
+
+.hero-chess-piece.black {
+  color: #20262d;
+  border: 2px solid rgba(34, 40, 46, 0.6);
+}
+
+.hero-chess-piece.pos-r1 { left: 18%; top: 68%; }
+.hero-chess-piece.pos-r2 { left: 42%; top: 76%; }
+.hero-chess-piece.pos-r3 { left: 66%; top: 68%; }
+.hero-chess-piece.pos-b1 { right: 16%; top: 20%; }
+.hero-chess-piece.pos-b2 { right: 40%; top: 12%; }
+.hero-chess-piece.pos-b3 { right: 64%; top: 20%; }
+
+.record-game {
+  color: #e9cf9e;
+}
+
+/* 中国象棋 Canvas 棋盘 */
+.chess-frame {
+  width: 100%;
+}
+
+.chess-canvas-wrap {
+  position: relative;
+  width: 100%;
+  touch-action: manipulation;
+}
+
+.chess-frame.is-interactive .chess-canvas-wrap {
+  cursor: pointer;
+}
+
+.chess-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 8px;
+  touch-action: manipulation;
+}
+
+.chess-surface {
+  padding: clamp(4px, 0.8vw, 10px);
+}
+
+.board-stage.is-chess {
+  max-width: none;
+}
+
+@media (max-width: 640px) {
+  .game-switch {
+    max-width: none;
+  }
+
+  .game-switch-copy small {
+    display: none;
+  }
+
+  .hero-chess-piece {
+    width: 38px;
+    height: 38px;
+    font-size: 21px;
+  }
+}
+
+
+.badge-game {
+  border: 1px solid rgba(233, 180, 95, 0.35);
+  background: rgba(233, 180, 95, 0.1);
+  color: #f0d6a4;
 }

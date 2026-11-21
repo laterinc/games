@@ -10,6 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.config import Settings
 from app.main import create_app
+from app.protocol import PROTOCOL_VERSION
 
 WELCOME_KEYS = {
     "type",
@@ -26,7 +27,7 @@ def _welcome(ws, *, reconnected: bool = False) -> dict[str, Any]:
     assert message["type"] == "welcome", message
     assert set(message) == WELCOME_KEYS
     assert message["reconnected"] is reconnected
-    assert message["protocolVersion"] == 1
+    assert message["protocolVersion"] == PROTOCOL_VERSION
     assert message["playerId"].startswith("p_")
     assert message["token"].startswith("t_")
     assert isinstance(message["serverTime"], int)
@@ -99,7 +100,7 @@ def test_welcome_ping_protocol_errors() -> None:
 
             # 字段类型错误
             ws.send_json({"type": "move", "row": "0", "col": 0})
-            _read_error(ws, "INVALID_MESSAGE")
+            _read_error(ws, "NOT_IN_ROOM")
 
             # list_rooms 随时可拉
             ws.send_json({"type": "list_rooms"})
@@ -292,7 +293,7 @@ def test_room_errors_and_turn_validation() -> None:
             a.send_json({"type": "move", "row": -1, "col": 0})
             _read_error(a, "INVALID_MOVE")
             a.send_json({"type": "move", "row": True, "col": 0})
-            _read_error(a, "INVALID_MESSAGE")
+            _read_error(a, "INVALID_MOVE")
 
             # 合法落子后重复落子
             a.send_json({"type": "move", "row": 7, "col": 7})
@@ -332,7 +333,7 @@ def test_hello_reconnect_restores_room() -> None:
             assert recovered["reconnected"] is True
             assert recovered["playerId"] == player_id
             assert recovered["token"] == token
-            assert recovered["protocolVersion"] == 1
+            assert recovered["protocolVersion"] == PROTOCOL_VERSION
             assert _read_type(second, "records")["type"] == "records"
 
             snapshot = _read_room(second)
@@ -380,6 +381,7 @@ def test_lobby_push_list_pull_and_rest() -> None:
                 {
                     "id": room["id"],
                     "name": "大厅测试",
+                    "gameType": "gomoku",
                     "status": "waiting",
                     "playerCount": 1,
                     "maxPlayers": 2,
@@ -426,12 +428,11 @@ def test_lobby_push_list_pull_and_rest() -> None:
         assert isinstance(body["serverTime"], int)
 
         config = client.get("/api/config").json()
-        assert config == {
-            "protocolVersion": 1,
-            "boardSize": 15,
-            "maxPlayers": 2,
-            "appName": "五子棋",
-        }
+        assert config["protocolVersion"] == PROTOCOL_VERSION
+        assert config["boardSize"] == 15
+        assert config["maxPlayers"] == 2
+        assert isinstance(config["appName"], str)
+        assert {item["key"] for item in config["games"]} >= {"gomoku", "chess"}
 
         unknown = client.get("/api/nope")
         assert unknown.status_code == 404
@@ -681,14 +682,14 @@ def test_handshake_cookie_restores_player() -> None:
     with TestClient(app) as client:
         with client.websocket_connect("/ws") as ws:
             welcome = _welcome(ws)
-        cookie = f"gomoku_session={welcome['playerId']}.{welcome['token']}"
+        cookie = f"games_session={welcome['playerId']}.{welcome['token']}"
         with client.websocket_connect("/ws", headers={"cookie": cookie}) as ws:
             again = _welcome(ws, reconnected=True)
             assert again["playerId"] == welcome["playerId"]
 
         # 非法 Cookie：分配新身份，不报错
         with client.websocket_connect(
-            "/ws", headers={"cookie": "gomoku_session=p_deadbeef.bad-token"}
+            "/ws", headers={"cookie": "games_session=p_deadbeef.bad-token"}
         ) as ws:
             fresh = _welcome(ws)
             assert fresh["playerId"] != welcome["playerId"]
@@ -701,7 +702,7 @@ def test_multiple_tabs_same_player_do_not_kick_each_other() -> None:
     with TestClient(app) as client:
         with client.websocket_connect("/ws") as tab1:
             first = _welcome(tab1)
-            cookie = f"gomoku_session={first['playerId']}.{first['token']}"
+            cookie = f"games_session={first['playerId']}.{first['token']}"
 
             with client.websocket_connect("/ws", headers={"cookie": cookie}) as tab2:
                 second = _welcome(tab2, reconnected=True)
@@ -865,3 +866,118 @@ def test_ai_undo_is_auto_accepted() -> None:
             assert len(undone["game"]["moves"]) == 0
             assert undone["game"]["currentTurn"] == "black"
             assert _read_type(ws, "notice")["text"] == "电脑同意悔棋"
+
+
+# ----------------------------------------------------------------------
+# 多游戏：中国象棋房间
+# ----------------------------------------------------------------------
+
+
+def test_chess_room_flow_and_records() -> None:
+    with TestClient(create_app()) as client:
+        with client.websocket_connect("/ws") as a, client.websocket_connect("/ws") as b:
+            _welcome(a)
+            _welcome(b)
+            room = _create_room(a, name="红方", gameType="chess", color="red")
+            assert room["gameType"] == "chess"
+            assert room["game"]["rows"] == 10 and room["game"]["cols"] == 9
+            assert room["game"]["currentTurn"] == "red"
+            assert room["game"]["legalMoves"]
+            _read_rooms(b)  # 大厅推送
+
+            b.send_json({"type": "join_room", "roomId": room["id"], "name": "黑方"})
+            _read_room(a)
+            joined = _read_room(b)
+            assert [p["color"] for p in joined["players"]] == ["red", "black"]
+
+            a.send_json({"type": "ready"})
+            _read_room(a)
+            _read_room(b)
+            b.send_json({"type": "ready"})
+            started = _read_room(a)
+            _read_room(b)
+            assert started["status"] == "playing"
+            assert started["game"]["moves"] == []
+
+            # 红炮从 B3 平到 E3
+            a.send_json(
+                {
+                    "type": "move",
+                    "from": {"row": 7, "col": 1},
+                    "to": {"row": 7, "col": 4},
+                }
+            )
+            moved = _read_room(a)
+            _read_room(b)
+            assert moved["game"]["currentTurn"] == "black"
+            assert moved["game"]["moves"][-1]["notation"] == "B3E3"
+
+            # 非法走法：黑方不能走红子
+            b.send_json(
+                {
+                    "type": "move",
+                    "from": {"row": 9, "col": 0},
+                    "to": {"row": 8, "col": 0},
+                }
+            )
+            _read_error(b, "INVALID_MOVE")
+
+            # 黑方直接认输 → 红胜，双方战绩带 gameType
+            b.send_json({"type": "resign"})
+            finished = _read_room(a)
+            _read_room(b)
+            assert finished["status"] == "finished"
+            assert finished["game"]["winner"] == "red"
+            assert finished["game"]["endedReason"] == "resign"
+            records_a = _read_type(a, "records")["records"]
+            records_b = _read_type(b, "records")["records"]
+            assert records_a[0]["gameType"] == "chess"
+            assert records_a[0]["result"] == "win"
+            assert records_b[0]["gameType"] == "chess"
+            assert records_b[0]["result"] == "loss"
+
+
+def test_chess_ai_room_moves_first_as_red() -> None:
+    with TestClient(create_app()) as client:
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            # 玩家执黑 → 电脑执红，应先走一步
+            room = _create_room(ws, name="黑方", gameType="chess", mode="ai", color="black")
+            assert room["gameType"] == "chess"
+            assert room["mode"] == "ai"
+            assert room["game"]["currentTurn"] == "red"
+            after_ai = _read_room(ws)
+            assert len(after_ai["game"]["moves"]) == 1
+            assert after_ai["game"]["currentTurn"] == "black"
+            assert after_ai["game"]["moves"][0]["color"] == "red"
+
+            # 玩家走黑方合法一步，电脑应手 → 共 3 手
+            move = after_ai["game"]["legalMoves"][0]
+            ws.send_json({"type": "move", "from": move["from"], "to": move["to"]})
+            after_human = _read_room(ws)
+            after_reply = _read_room(ws)
+            assert len(after_human["game"]["moves"]) == 2
+            assert len(after_reply["game"]["moves"]) == 3
+            assert after_reply["game"]["currentTurn"] == "black"
+
+
+def test_unknown_game_type_rejected_and_rooms_filtered_by_game() -> None:
+    with TestClient(create_app()) as client:
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            ws.send_json(
+                {"type": "create_room", "name": "测试", "gameType": "go", "color": "black"}
+            )
+            _read_error(ws, "INVALID_MESSAGE")
+
+        with client.websocket_connect("/ws") as a, client.websocket_connect("/ws") as b:
+            _welcome(a)
+            _welcome(b)
+            chess = _create_room(a, name="象棋", gameType="chess", color="red")
+            _read_rooms(b)
+            gomoku = _create_room(b, name="五子棋", gameType="gomoku", color="black")
+
+            chess_rooms = client.get("/api/rooms", params={"game": "chess"}).json()["rooms"]
+            gomoku_rooms = client.get("/api/rooms", params={"game": "gomoku"}).json()["rooms"]
+            assert [item["id"] for item in chess_rooms] == [chess["id"]]
+            assert [item["id"] for item in gomoku_rooms] == [gomoku["id"]]

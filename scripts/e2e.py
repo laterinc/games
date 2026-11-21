@@ -276,7 +276,7 @@ async def main() -> None:
     cookie_client = Client(ws_cookie, "Cookie 会话")
     cookie_welcome = await cookie_client.expect("welcome", "Cookie 会话 welcome")
     set_cookie = ws_cookie.response.headers.get("set-cookie") or ""
-    if "gomoku_session=" not in set_cookie:
+    if "games_session=" not in set_cookie:
         fail("握手未下发身份 Cookie", set_cookie)
     cookie = set_cookie.split(";", 1)[0]
     await ws_cookie.close()

@@ -5,7 +5,7 @@
  * 静音状态持久化在 localStorage；浏览器自动播放策略要求首次交互后才能出声。
  */
 
-const STORAGE_KEY = 'gomoku.sound.enabled.v1';
+const STORAGE_KEY = 'games.sound.enabled.v1';
 
 let context: AudioContext | null = null;
 let enabled = loadEnabled();
@@ -112,13 +112,13 @@ function playNotes(notes: number[], step: number, duration: number, gain: number
   });
 }
 
-export function playStoneSound(color: 'black' | 'white'): void {
+export function playStoneSound(color: 'black' | 'white' | 'red'): void {
   if (!enabled) return;
   const ctx = ensureContext();
   if (!ctx) return;
   if (ctx.state === 'suspended') void ctx.resume();
   const start = ctx.currentTime + 0.005;
-  const base = color === 'black' ? 196 : 261.6;
+  const base = color === 'black' ? 196 : color === 'red' ? 233.1 : 261.6;
   noiseClick(ctx, start, 0.055, 0.09);
   tone(ctx, { freq: base, start, duration: 0.11, gain: 0.075, type: 'sine' });
   tone(ctx, { freq: base * 2.05, start: start + 0.004, duration: 0.07, gain: 0.03, type: 'triangle' });

@@ -1,10 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ChatMessage, Color, Point, Room, ToastLevel } from '../types';
+import type {
+  ChatMessage,
+  ChessColor,
+  ChessGame,
+  Color,
+  GomokuColor,
+  GomokuGame,
+  MoveInput,
+  Point,
+  Room,
+  ToastLevel,
+} from '../types';
 import type { SocketStatus } from '../lib/socket';
-import { COLOR_LABEL, ROOM_STATUS_LABEL } from '../lib/protocol';
+import { COLOR_LABEL, GAME_LABEL, ROOM_STATUS_LABEL } from '../lib/protocol';
 import { isSoundEnabled, playResultSound, playStoneSound, setSoundEnabled, unlockAudio } from '../lib/sound';
 import { copyText } from '../lib/clipboard';
 import { Board } from './Board';
+import { ChessBoard } from './ChessBoard';
 import { ChatPanel } from './ChatPanel';
 import { Modal } from './Modal';
 import { PlayerCard } from './PlayerCard';
@@ -15,7 +27,7 @@ interface RoomViewProps {
   playerId: string | null;
   isSpectator: boolean;
   chat: ChatMessage[];
-  onMove: (row: number, col: number) => void;
+  onMove: (move: MoveInput) => void;
   onReady: () => void;
   onRematch: () => void;
   onResign: () => void;
@@ -35,6 +47,7 @@ interface ResultInfo {
 function describeResult(room: Room): ResultInfo | null {
   if (room.status !== 'finished') return null;
   const { winner, endedReason } = room.game;
+  const isChess = room.gameType === 'chess';
   if (endedReason === 'forfeit') {
     return {
       title: winner ? `${COLOR_LABEL[winner]}胜` : '对局结束',
@@ -49,11 +62,33 @@ function describeResult(room: Room): ResultInfo | null {
       tone: winner ?? 'neutral',
     };
   }
+  if (endedReason === 'checkmate') {
+    return {
+      title: winner ? `${COLOR_LABEL[winner]}胜` : '对局结束',
+      detail: '将死，无子可解',
+      tone: winner ?? 'neutral',
+    };
+  }
+  if (endedReason === 'stalemate') {
+    return {
+      title: winner ? `${COLOR_LABEL[winner]}胜` : '对局结束',
+      detail: '困毙，无子可动',
+      tone: winner ?? 'neutral',
+    };
+  }
   if (winner) {
-    return { title: `${COLOR_LABEL[winner]}胜`, detail: '五连达成', tone: winner };
+    return {
+      title: `${COLOR_LABEL[winner]}胜`,
+      detail: isChess ? '将死对手' : '五连达成',
+      tone: winner,
+    };
   }
   if (endedReason === 'draw') {
-    return { title: '和棋', detail: '棋盘已下满，未分胜负', tone: 'draw' };
+    return {
+      title: '和棋',
+      detail: isChess ? '自然限着，未分胜负' : '棋盘已下满，未分胜负',
+      tone: 'draw',
+    };
   }
   return { title: '对局结束', detail: '', tone: 'neutral' };
 }
@@ -101,10 +136,13 @@ export function RoomView({
   const players = room.players;
   const me = playerId ? players.find((player) => player.id === playerId) ?? null : null;
   const opponent = playerId ? players.find((player) => player.id !== playerId) ?? null : null;
-  const blackSeat = players.find((player) => player.color === 'black') ?? null;
-  const whiteSeat = players.find((player) => player.color === 'white') ?? null;
+  const isChess = room.gameType === 'chess';
+  const seatColors: [Color, Color] = isChess ? ['red', 'black'] : ['black', 'white'];
+  const seatOne = players.find((player) => player.color === seatColors[0]) ?? null;
+  const seatTwo = players.find((player) => player.color === seatColors[1]) ?? null;
   const myColor = me?.color ?? null;
   const game = room.game;
+  const moveVerb = isChess ? '走子' : '落子';
   const myTurn =
     connected && room.status === 'playing' && myColor !== null && game.currentTurn === myColor;
   const isAiRoom = room.mode === 'ai';
@@ -117,7 +155,7 @@ export function RoomView({
     !spectator && connected && room.status === 'playing' && game.moves.length > 0 && undoRequest === null;
 
   const [pendingMove, setPendingMove] = useState<Point | null>(null);
-  const pending = pendingMove !== null;
+  const pending = !isChess && pendingMove !== null;
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [resignOpen, setResignOpen] = useState(false);
   const [soundOn, setSoundOn] = useState(isSoundEnabled());
@@ -144,7 +182,11 @@ export function RoomView({
     if (next > previous && lastMove) {
       const own = ownPendingRef.current;
       const confirmedOwn =
-        own !== null && lastMove.row === own.row && lastMove.col === own.col;
+        room.gameType === 'gomoku' &&
+        own !== null &&
+        'row' in lastMove &&
+        lastMove.row === own.row &&
+        lastMove.col === own.col;
       if (!confirmedOwn) {
         playStoneSound(lastMove.color);
       }
@@ -169,13 +211,16 @@ export function RoomView({
   const interactive = myTurn && !pending;
 
   const handleMove = useCallback(
-    (row: number, col: number): void => {
+    (move: MoveInput): void => {
       if (!interactive) return;
-      // 乐观落子：先立刻显示半透明棋子，等服务端快照回来再替换为正式棋子
-      ownPendingRef.current = { row, col };
-      setPendingMove({ row, col });
-      if (myColor) playStoneSound(myColor);
-      onMove(row, col);
+      if ('row' in move && 'col' in move) {
+        // 五子棋：乐观落子，先立刻显示半透明棋子，等服务端快照回来再替换
+        ownPendingRef.current = { row: move.row, col: move.col };
+        setPendingMove({ row: move.row, col: move.col });
+        if (myColor) playStoneSound(myColor);
+      }
+      // 中国象棋：等确认快照回来后统一播放落子音，避免重复
+      onMove(move);
     },
     [interactive, myColor, onMove],
   );
@@ -224,10 +269,10 @@ export function RoomView({
     ? '落子确认中…'
     : room.status === 'playing'
       ? myTurn
-        ? '轮到你落子'
+        ? `轮到你${moveVerb}`
         : botThinking
           ? '电脑思考中…'
-          : `等待${COLOR_LABEL[game.currentTurn]}落子`
+          : `等待${COLOR_LABEL[game.currentTurn]}${moveVerb}`
       : '';
 
   return (
@@ -237,6 +282,7 @@ export function RoomView({
           <h1 className="room-title">{room.name}</h1>
           <div className="room-sub">
             <span className={`pill pill-${room.status}`}>{ROOM_STATUS_LABEL[room.status]}</span>
+            <span className="badge badge-game">{GAME_LABEL[room.gameType]}</span>
             <span className="room-code-chip">
               房间码 <strong>{room.id}</strong>
             </span>
@@ -311,18 +357,27 @@ export function RoomView({
             </div>
           ) : null}
 
-          <div className="board-stage">
-            <Board
-              game={game}
-              myColor={myColor}
-              interactive={interactive}
-              pendingMove={pendingMove}
-              onMove={handleMove}
-            />
+          <div className={`board-stage${isChess ? ' is-chess' : ''}`}>
+            {isChess ? (
+              <ChessBoard
+                game={room.game as ChessGame}
+                myColor={myColor as ChessColor | null}
+                interactive={interactive}
+                onMove={handleMove}
+              />
+            ) : (
+              <Board
+                game={room.game as GomokuGame}
+                myColor={myColor as GomokuColor | null}
+                interactive={interactive}
+                pendingMove={pendingMove}
+                onMove={(row, col) => handleMove({ row, col })}
+              />
+            )}
           </div>
 
           <div className="board-footer">
-            <span>黑棋先行 · 五连获胜</span>
+            <span>{isChess ? '红棋先行 · 将死或困毙获胜' : '黑棋先行 · 五连获胜'}</span>
             <span>{spectator ? '观战中 · 只读' : myColor ? `你执${COLOR_LABEL[myColor]}` : '未入座'}</span>
           </div>
         </div>
@@ -330,17 +385,17 @@ export function RoomView({
         <aside className="room-side">
           <div className="card glass players-card">
             <PlayerCard
-              player={blackSeat}
-              seatColor="black"
-              isMe={blackSeat !== null && blackSeat.id === playerId}
+              player={seatOne}
+              seatColor={seatColors[0]}
+              isMe={seatOne !== null && seatOne.id === playerId}
             />
             <div className="vs-divider" aria-hidden="true">
               VS
             </div>
             <PlayerCard
-              player={whiteSeat}
-              seatColor="white"
-              isMe={whiteSeat !== null && whiteSeat.id === playerId}
+              player={seatTwo}
+              seatColor={seatColors[1]}
+              isMe={seatTwo !== null && seatTwo.id === playerId}
             />
             {room.spectators > 0 ? (
               <p className="spectator-count">{room.spectators} 人正在观战</p>
@@ -383,7 +438,7 @@ export function RoomView({
                   >
                     再来一局
                   </button>
-                  <p className="action-hint">与电脑再战一局，自动交换黑白。</p>
+                  <p className="action-hint">与电脑再战一局，自动交换{isChess ? '红黑' : '黑白'}。</p>
                 </>
               ) : (
                 <>
@@ -397,16 +452,20 @@ export function RoomView({
                     {iVotedRematch ? '已投票，等待对手' : '再来一局'}
                   </button>
                   {votingNames ? <p className="action-hint">{votingNames} 已投票</p> : null}
-                  <p className="action-hint">双方都投票后自动重开，并交换黑白。</p>
+                  <p className="action-hint">双方都投票后自动重开，并交换{isChess ? '红黑' : '黑白'}。</p>
                 </>
               )
             ) : (
               <>
                 <p className="action-title">
-                  {myTurn ? '轮到你落子' : botThinking ? '电脑思考中…' : '等待对手落子'}
+                  {myTurn ? `轮到你${moveVerb}` : botThinking ? '电脑思考中…' : `等待对手${moveVerb}`}
                 </p>
                 <p className="action-hint">
-                  {pending ? '已提交落子，等待服务端确认…' : '点击棋盘交叉点落子，仅轮到你时可下。'}
+                  {pending
+                    ? '已提交落子，等待服务端确认…'
+                    : isChess
+                      ? '先点选己方棋子，再点目标格走子；仅轮到你时可走。'
+                      : '点击棋盘交叉点落子，仅轮到你时可下。'}
                 </p>
                 {opponentRequestedUndo ? (
                   <div className="undo-panel">

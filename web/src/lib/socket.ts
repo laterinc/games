@@ -61,7 +61,7 @@ function resolveSocketUrl(configured?: string, apiBase?: string): string {
     try {
       const apiUrl = new URL(base);
       const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-      // 站点部署在子路径（如 /gomoku）时，WS 也挂在同一前缀下
+      // 站点部署在子路径（如 /games）时，WS 也挂在同一前缀下
       const prefix = apiUrl.pathname
         .replace(/\/+$/, '')
         .replace(/\/api$/i, '');

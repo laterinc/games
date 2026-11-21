@@ -1,4 +1,4 @@
-"""协议常量、错误码与入参校验（对齐 gomoku/PROTOCOL.md v1）。"""
+"""协议常量、错误码与入参校验（对齐 games/PROTOCOL.md v2）。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import time
 from enum import Enum
 from typing import Any
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MAX_PLAYERS = 2
 BOARD_SIZE_DEFAULT = 15
 
@@ -22,7 +22,7 @@ RATE_LIMIT_MAX_MESSAGES = 40
 
 #: 颜色/可见性枚举
 COLORS: tuple[str, ...] = ("black", "white")
-CREATE_COLORS: tuple[str, ...] = ("black", "white", "random")
+CREATE_COLORS: tuple[str, ...] = ("black", "white", "red", "random")
 VISIBILITIES: tuple[str, ...] = ("public", "private")
 MODES: tuple[str, ...] = ("pvp", "ai")
 ROOM_STATUSES: tuple[str, ...] = ("waiting", "playing", "finished")
@@ -160,7 +160,7 @@ def validate_visibility(raw: str) -> str:
 
 def validate_color(raw: str) -> str:
     if raw not in CREATE_COLORS:
-        raise ProtocolError(ErrorCode.INVALID_MESSAGE, "color 只能是 black、white 或 random")
+        raise ProtocolError(ErrorCode.INVALID_MESSAGE, "color 只能是 black、white、red 或 random")
     return raw
 
 

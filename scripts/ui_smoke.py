@@ -25,7 +25,9 @@ from playwright.sync_api import Page, expect, sync_playwright
 PAD = 38
 CELL = 40
 BOARD_PX = (15 - 1) * CELL + PAD * 2
-SHOT_DIR = Path("/tmp/gomoku-ui")
+SHOT_DIR = Path("/tmp/games-ui")
+CHESS_BOARD_W = (9 - 1) * 64 + 44 * 2
+CHESS_BOARD_H = (10 - 1) * 64 + 44 * 2
 
 
 def wait_room(page: Page, room_id: str) -> None:
@@ -38,6 +40,14 @@ def click_point(page: Page, row: int, col: int) -> None:
     assert box is not None, "棋盘不可见"
     x = box["x"] + (PAD + col * CELL) / BOARD_PX * box["width"]
     y = box["y"] + (PAD + row * CELL) / BOARD_PX * box["height"]
+    page.mouse.click(x, y)
+
+
+def click_chess_point(page: Page, row: int, col: int) -> None:
+    box = page.locator(".chess-canvas").bounding_box()
+    assert box is not None, "象棋棋盘不可见"
+    x = box["x"] + (44 + col * 64) / CHESS_BOARD_W * box["width"]
+    y = box["y"] + (44 + row * 64) / CHESS_BOARD_H * box["height"]
     page.mouse.click(x, y)
 
 
@@ -134,7 +144,7 @@ def main() -> None:
             wait_moves(b, index)
         a.wait_for_timeout(400)
         a.screenshot(path=str(SHOT_DIR / "midgame-desktop.png"), full_page=True)
-        print("  ✓ 对局页渲染（截图见 /tmp/gomoku-ui）")
+        print("  ✓ 对局页渲染（截图见 /tmp/games-ui）")
 
         # 第三人观战：通过 ?room= 进入，点「观战」，只读看棋
         spectator_ctx = browser.new_context()
@@ -174,7 +184,7 @@ def main() -> None:
         b.wait_for_timeout(300)
         b.screenshot(path=str(SHOT_DIR / "mobile-room.png"), full_page=True)
         b.set_viewport_size({"width": 1360, "height": 900})
-        print("  ✓ 移动端 390×844 对局页渲染（截图见 /tmp/gomoku-ui）")
+        print("  ✓ 移动端 390×844 对局页渲染（截图见 /tmp/games-ui）")
 
         # 刷新重连：A 刷新后应凭 session 自动回到房间
         a.reload(wait_until="networkidle")
@@ -183,11 +193,30 @@ def main() -> None:
         print("  ✓ 刷新页面后凭 playerId/token 自动恢复对局与座位")
 
         # 即使 localStorage 被清掉，也能靠握手 Cookie 认回同一玩家与座位
-        a.evaluate("() => localStorage.removeItem('gomoku.session.v1')")
+        a.evaluate("() => localStorage.removeItem('games.session.v1')")
         a.reload(wait_until="networkidle")
         wait_room(a, room_id)
         expect(a.locator(".board-footer")).to_contain_text("你执白棋", timeout=10_000)
         print("  ✓ 清空 localStorage 后刷新，仍凭 Cookie 恢复同一玩家与座位")
+
+        # 中国象棋：切换游戏 → 人机对战 → 红兵前进 → 电脑应手
+        c = browser.new_context(viewport={"width": 1360, "height": 1000}).new_page()
+        c.on("console", lambda msg: errors.append(f"[C] console.{msg.type}: {msg.text}") if msg.type == "error" else None)
+        c.on("pageerror", lambda exc: errors.append(f"[C] pageerror: {exc}"))
+        c.goto(base, wait_until="networkidle")
+        c.locator('input[autocomplete="nickname"]').fill("象棋手")
+        c.get_by_role("tab", name="中国象棋").click()
+        expect(c.locator(".hero-title")).to_contain_text("中国象棋")
+        c.screenshot(path=str(SHOT_DIR / "chess-lobby.png"), full_page=True)
+        c.get_by_role("button", name="人机对战").click()
+        c.get_by_role("button", name="开始对局").click()
+        c.locator(".chess-canvas").wait_for(timeout=10_000)
+        click_chess_point(c, 6, 0)
+        click_chess_point(c, 5, 0)
+        expect(c.locator(".turn-meta")).to_contain_text("手数 2", timeout=10_000)
+        expect(c.locator(".board-footer")).to_contain_text("红棋先行")
+        c.screenshot(path=str(SHOT_DIR / "chess-room.png"), full_page=True)
+        print("  ✓ 中国象棋：游戏切换、人机开局、红兵前进与电脑应手")
 
         if errors:
             print("\n浏览器控制台错误：")

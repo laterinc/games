@@ -9,12 +9,12 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import type { Color, Game, Point } from '../types';
+import type { GomokuColor, GomokuGame, Point } from '../types';
 
 interface BoardProps {
-  game: Game;
+  game: GomokuGame;
   /** 我的执子颜色；null 表示没有可操作的颜色。 */
-  myColor: Color | null;
+  myColor: GomokuColor | null;
   /** 当前是否允许落子（轮到自己 + 连接正常 + 无待确认落子）。 */
   interactive: boolean;
   /** 已点击、等待服务端确认的乐观落子（立刻显示半透明棋子）。 */
@@ -66,7 +66,7 @@ function starPoints(size: number): Point[] {
   });
 }
 
-function stoneColorAt(board: number[][], row: number, col: number): Color | null {
+function stoneColorAt(board: number[][], row: number, col: number): GomokuColor | null {
   const cell = board[row]?.[col] ?? 0;
   if (cell === 1) return 'black';
   if (cell === 2) return 'white';
@@ -75,9 +75,9 @@ function stoneColorAt(board: number[][], row: number, col: number): Color | null
 
 /* ----------------------------- 棋子精灵缓存 ----------------------------- */
 
-let sprites: Record<Color, HTMLCanvasElement> | null = null;
+let sprites: Record<GomokuColor, HTMLCanvasElement> | null = null;
 
-function buildStoneSprite(color: Color): HTMLCanvasElement {
+function buildStoneSprite(color: GomokuColor): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = SPRITE_SIZE;
   canvas.height = SPRITE_SIZE;
@@ -128,7 +128,7 @@ function buildStoneSprite(color: Color): HTMLCanvasElement {
   return canvas;
 }
 
-function getStoneSprite(color: Color): HTMLCanvasElement {
+function getStoneSprite(color: GomokuColor): HTMLCanvasElement {
   if (!sprites) {
     sprites = {
       black: buildStoneSprite('black'),
@@ -143,7 +143,7 @@ const SPRITE_STONE_RATIO = (SPRITE_RADIUS * 2) / SPRITE_SIZE;
 
 function drawStoneSprite(
   ctx: CanvasRenderingContext2D,
-  color: Color,
+  color: GomokuColor,
   cx: number,
   cy: number,
   scale = 1,

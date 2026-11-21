@@ -1,4 +1,4 @@
-"""五子棋服务端环境变量配置。
+"""棋类游戏服务端环境变量配置。
 
 服务端只负责 REST 与 WebSocket；前端构建产物由 Nginx / CDN / Vite 托管，
 不在本进程内提供任何静态文件服务。
@@ -50,7 +50,7 @@ class Settings:
     allowed_origins: tuple[str, ...] = ()
     room_ttl_seconds: float = 6 * 3600.0
     disconnect_grace_seconds: float = 60.0
-    app_name: str = "五子棋"
+    app_name: str = "棋类游戏"
     version: str = "1.0.0"
 
     def __post_init__(self) -> None:

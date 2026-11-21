@@ -1,437 +1,262 @@
-# 五子棋 · 联机对战（React + TypeScript / Python）
+# 棋类游戏 · 联机对战（React + TypeScript / Python）
 
-一个可以直接放到公网联机的五子棋小游戏：**前端 React 18 + TypeScript + Vite**，
-**后端 Python 3.11 + FastAPI + WebSocket**。服务端为唯一裁判，房间码邀请、
-快速匹配、准备开局、聊天、认输、悔棋、人机对战、最近战绩、第三人观战、断线重连全部可用。
+一个可外网连接的**多游戏联机大厅**：目前包含 **五子棋** 与 **中国象棋**，前端 React 18 + TypeScript + Vite，后端 Python 3.11 + FastAPI + WebSocket。服务端是唯一裁判，前端只做展示与乐观交互。
 
-- **前后端职责分离**：Python 后端只提供 `/api` 与 `/ws`，不读写任何前端文件；
-  前端构建产物 `web/dist` 由 Nginx / CDN 托管（开发用 Vite）。后端进程不包含 Node、
-  不构建前端，也不做静态文件兜底。
-- 单进程内存房间，零数据库，零 Redis，部署成本极低。
-- 协议契约见 [`PROTOCOL.md`](./PROTOCOL.md)，前后端都按它实现。
+> 项目原名 `gomoku`，现更名为 **games**；五子棋只是其中一个游戏，新增小游戏只需实现一份 `GameRules` 规则插件。
+> 生产入口示例：`https://cloudflare.org.cn/games/`，WebSocket：`wss://cloudflare.org.cn/games/ws`。
 
-```
-浏览器 ──静态资源──► Nginx / CDN（web/dist）
-   └──── /api、/ws ──► FastAPI (8765) ──► 房间内存状态
-```
-
-## 获取代码
-
-```bash
-git clone https://github.com/laterinc/gomoku.git
-cd gomoku
-```
+![大厅（中国象棋）](docs/screenshots/lobby.png)
 
 ## 功能
 
 | 模块 | 能力 |
 | --- | --- |
-| 大厅 | 修改昵称、快速匹配、创建房间（公开/私密、执黑/执白/随机）、公开房间列表、房间码加入、`?room=CODE` 邀请链接 |
-| 对局 | 15 路棋盘、黑白轮流、服务端判胜（横/竖/斜，≥5 连）、和棋、最后一手标记、胜利连线高亮、手数、双方在线状态 |
-| 房间 | 双方准备开局、房主标识、复制房间码/邀请链接、离开房间、对手离开判负并重置等待新对手 |
-| 对局操作 | 认输（对手直接获胜）、悔棋请求（对方同意/拒绝；人机房电脑自动同意）、再来一局 |
-| 人机 | 可选执黑/执白/随机与电脑对弈，电脑自动应手，结束后可立即重开（交换黑白） |
-| 战绩 | 最近 10 局结果、对手、手数、时间，随浏览器身份保存，大厅展示 |
-| 观战 | 满房/开局后第三人可只读观战（不占座），同步棋盘与聊天，可随时退出 |
-| 音效 | 落子/获胜/失败/和棋音效，WebAudio 实时合成（无音频文件），可静音并记住设置 |
-| 渲染 | 棋盘 Canvas 2D（离屏缓存 + rAF 动画），无 SVG/DOM 棋子，悬停/落子低延迟 |
-| 社交 | 房间内聊天（玩家与观战者，保留最近 50 条、长度限制、频率限制） |
-| 稳定性 | 断线自动重连、会话恢复（localStorage token + 握手 Cookie）、多标签页不互相顶号、掉线 60s 宽限、心跳保活、消息限流 |
+| 游戏 | 五子棋（15×15，五连获胜）；中国象棋（9×10，将死/困毙获胜） |
+| 联机 | 快速匹配、公开/私密房间、房间码与邀请链接、双方准备开局、观战（最多 20 人） |
+| 身份 | HttpOnly `games_session` Cookie（`playerId.token`，30 天）+ localStorage token；刷新/重开浏览器/换标签页可恢复座位 |
+| 对局 | 服务端走子校验、悔棋请求/回应、认输、再来一局（自动交换先后手）、断线宽限与弃权结算 |
+| 玩法 | 内置电脑对手：五子棋启发式 AI；中国象棋 alpha-beta 搜索 AI |
+| 体验 | 五子棋乐观落子 + 落子动画、涟漪、胜利连线；象棋选中/合法落点高亮、将军提示、上一步标记 |
+| 音效 | WebAudio 实时合成（落子/胜负/和棋），可静音并记住设置 |
+| 战绩 | 每位玩家保留最近 10 局，标记游戏、模式、结果、手数；仅保存在服务端内存 |
+| 渲染 | 棋盘全部 **Canvas 2D**（离屏静态层 + 按需重绘 + DPR 自适应），无 SVG/DOM 棋子 |
 
-## 界面预览
+### 五子棋 / 中国象棋截图
 
-| 大厅 | 对局中 |
+| 五子棋对局 | 中国象棋对局 |
 | --- | --- |
-| ![大厅](docs/screenshots/lobby.png) | ![对局中](docs/screenshots/midgame.png) |
+| ![五子棋](docs/screenshots/midgame.png) | ![中国象棋](docs/screenshots/chess-room.png) |
 
-| 五连复盘 | 移动端 |
+| 五子棋终局 | 移动端 |
 | --- | --- |
-| ![五连](docs/screenshots/finished.png) | ![移动端](docs/screenshots/mobile.png) |
+| ![终局](docs/screenshots/finished.png) | ![移动端](docs/screenshots/mobile.png) |
 
-## 目录
+## 技术栈与目录
 
-```
-gomoku/
-├── PROTOCOL.md          # 前后端 WebSocket 协议契约（唯一事实源）
-├── README.md
-├── Dockerfile           # 后端镜像（Python / uvicorn，只跑 API/WS）
-├── Dockerfile.web       # 前端镜像（Node 构建 → Nginx 托管 dist）
-├── deploy/nginx.container.conf  # 容器内 Nginx 配置（/api、/ws 反代）
-├── docker-compose.yml   # api + web 两个容器
-├── .env.example
-├── docs/screenshots/    # 界面截图（README 预览用）
-├── scripts/
-│   ├── dev.sh           # 开发：后端 8765 + Vite 5173
-│   ├── start.sh         # 生产：只启动后端 API/WS
-│   ├── e2e.py           # 端到端联机冒烟（真实 WebSocket 双人对局）
-│   └── ui_smoke.py      # 浏览器 UI 冒烟（可选，Playwright + 本机 Chrome）
-├── server/              # Python 后端（无静态文件服务）
-│   ├── app/             # main / config / game / rooms / ws ...
-│   ├── tests/           # pytest：规则 + 房间 + WebSocket 全流程
-│   └── requirements.txt
-└── web/                 # React + TS 前端（独立构建、独立部署）
-    ├── src/
-    └── vite.config.ts
+- 前端：React 18、TypeScript 5.6、Vite 5、纯 CSS（无 UI 组件库、无游戏引擎）
+- 后端：Python 3.11、FastAPI、uvicorn、原生 WebSocket
+- 部署：前端静态资源由 Nginx / CDN / Cloudflare Workers 托管；后端只提供 `/api` 与 `/ws`，**不托管任何前端文件**
+
+```text
+games/
+├── server/
+│   ├── app/
+│   │   ├── main.py          # FastAPI：/api/health、/api/rooms、/api/config + WS
+│   │   ├── ws.py            # WebSocket 接入、Cookie 身份、消息分发
+│   │   ├── rooms.py         # 游戏无关的房间生命周期 / 悔棋 / 认输 / AI / 战绩
+│   │   ├── games/
+│   │   │   ├── base.py      # GameRules 插件接口
+│   │   │   ├── gomoku.py    # 五子棋规则
+│   │   │   └── chess.py     # 中国象棋规则 + AI
+│   │   ├── game.py / ai.py  # 五子棋棋盘算法与启发式 AI
+│   │   └── protocol.py      # 协议 v2 常量、错误码、校验
+│   ├── tests/               # pytest（规则 + 房间 + WebSocket 集成）
+│   └── run.py               # CLI 启动入口（--host/--port/--reload）
+├── web/
+│   └── src/
+│       ├── components/
+│       │   ├── Lobby.tsx         # 游戏切换 + 大厅
+│       │   ├── RoomView.tsx      # 通用对局页
+│       │   ├── Board.tsx         # 五子棋 Canvas 棋盘
+│       │   ├── ChessBoard.tsx    # 中国象棋 Canvas 棋盘
+│       │   └── ...
+│       ├── hooks/useGameSocket.ts# WS 状态机 + 动作
+│       ├── lib/protocol.ts       # 运行时协议解析
+│       └── types.ts              # 多游戏类型
+├── deploy/nginx.container.conf
+├── Dockerfile / Dockerfile.web / docker-compose.yml
+├── PROTOCOL.md                  # 协议 v2（含两种 game 状态）
+└── scripts/                     # start/dev/e2e/ui_smoke
 ```
 
 ## 快速开始（开发模式）
 
-环境：Node.js ≥ 18、Python ≥ 3.11。
-
 ```bash
-# 在仓库根目录（gomoku/）执行
-./scripts/dev.sh
-```
-
-- 前端：<http://localhost:5173>（Vite HMR，`/api` 与 `/ws` 代理到后端）
-- 后端：<http://127.0.0.1:8765>（`/api/health` 可探活）
-
-> 如果给后端换了端口（例如 `./scripts/dev.sh --port 8281`），Vite 代理也要跟着指过去：
-> 在 `web/.env.development` 里设置 `DEV_BACKEND=http://127.0.0.1:8281`。
-
-首次运行脚本会自动 `python3 -m venv server/.venv`、安装依赖、`npm install`。
-
-### 手动启动
-
-```bash
-# 后端（读取 .env 应用配置；监听地址用参数）
-cd server
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-cp .env.example .env        # 按需修改棋盘/CORS 等应用配置
-.venv/bin/python run.py --host 0.0.0.0 --port 8765   # 监听地址用参数；--reload 热重载
+# 后端（仓库根目录）
+./scripts/dev.sh              # uvicorn 热重载，默认 127.0.0.1:8765
 
 # 前端（另开终端）
 cd web
 npm install
-npm run dev
+npm run dev                   # http://127.0.0.1:5173
 ```
 
-## 生产部署（前端 Nginx/CDN + 后端 API/WS）
+Vite 已把 `/api` 与 `/ws` 代理到 `http://127.0.0.1:8765`；也可以用 `DEV_BACKEND=http://host:port npm run dev` 指定其他后端。
 
-后端**只提供 `/api` 与 `/ws`**，不托管静态文件。生产环境用 Nginx（或 CDN）托管
-`web/dist`，并把 `/api`、`/ws` 反代到后端进程。
+### 手动启动
 
 ```bash
-# 1) 构建前端（本地/CI 均可）
-cd web && npm ci && npm run build        # 产物：web/dist
+python3 -m venv server/.venv && server/.venv/bin/pip install -r server/requirements.txt
+cd server && .venv/bin/python run.py --host 0.0.0.0 --port 8765 --reload
 
-# 2) 后端（仓库根目录）
-cd ..
-cp server/.env.example server/.env       # 应用配置（棋盘、CORS 等）
-./scripts/start.sh --host 127.0.0.1 --port 8000   # 监听地址由启动参数决定
-
-# 3) 把 web/dist 上传到服务器，例如 /www/wwwroot/gomoku/web/dist
+cd web && npm run dev
 ```
 
-Nginx 示例（前端与后端同域，无需 CORS）：
+> 监听地址/端口只由启动参数决定，不从 `.env` 读取端口；应用配置从仓库根 `.env` 或 `server/.env` 读取。
+
+## 生产部署（前端静态资源 + 后端 API/WS）
+
+前端与后端分开部署，后端**不提供静态文件**。
+
+```bash
+# 1) 构建前端（构建期注入部署地址）
+cd web
+VITE_BASE_PATH=/games/ \
+VITE_API_BASE=https://cloudflare.org.cn/games \
+VITE_WS_URL=wss://cloudflare.org.cn/games/ws \
+npm run build
+
+# 2) 启动后端
+cd ..
+./scripts/start.sh --host 127.0.0.1 --port 8765
+```
+
+把 `web/dist` 部署到 `https://example.com/games/`；Nginx 参考：
 
 ```nginx
-server {
-    listen 443 ssl http2;
-    server_name gomoku.example.com;
-
-    root  /www/wwwroot/gomoku/web/dist;
+location /games/ {
+    alias /www/wwwroot/games/web/dist/;
     index index.html;
-
-    # 前端 SPA：静态文件直出，未知路径回 index.html
-    location / {
-        try_files $uri $uri/ /index.html;
-        add_header Cache-Control "no-cache" always;
-    }
-    location /assets/ {
+    try_files $uri $uri/ /games/index.html;
+    location = /games/index.html { add_header Cache-Control "no-cache"; }
+    location ~* ^/games/assets/ {
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
+}
 
-    # REST
-    location /api/ {
-        proxy_pass         http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header   Host              $host;
-        proxy_set_header   X-Real-IP         $remote_addr;
-        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header   X-Forwarded-Proto $scheme;
-    }
+# REST：/games/api/* → 后端 /api/*
+location /games/api/ {
+    proxy_pass http://127.0.0.1:8765/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
 
-    # WebSocket（必须带 Upgrade/Connection 头）
-    location /ws {
-        proxy_pass         http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header   Upgrade    $http_upgrade;
-        proxy_set_header   Connection "upgrade";
-        proxy_set_header   Host       $host;
-        proxy_read_timeout 3600s;
-    }
+# WebSocket：/games/ws → 后端 /ws
+location = /games/ws {
+    proxy_pass http://127.0.0.1:8765/ws;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_read_timeout 3600s;
 }
 ```
 
-证书：`sudo certbot --nginx -d gomoku.example.com`。
-
-后端 systemd（单进程，只跑 API/WS）：
+### systemd
 
 ```ini
-# /etc/systemd/system/gomoku-api.service
+# /etc/systemd/system/games-api.service
 [Unit]
-Description=Gomoku API/WS
+Description=Games API/WS (Gomoku + Chinese Chess)
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/gomoku/server
-# 监听地址/端口是启动参数；应用配置仍从 server/.env 读取
-ExecStart=/opt/gomoku/server/.venv/bin/python /opt/gomoku/server/run.py --host 127.0.0.1 --port 8000
-Restart=always
+WorkingDirectory=/www/wwwroot/games
+EnvironmentFile=/www/wwwroot/games/.env
+ExecStart=/www/wwwroot/games/server/.venv/bin/python server/run.py --host 127.0.0.1 --port 8765
+Restart=on-failure
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-> ⚠️ 房间状态在进程内存中，**只能跑 1 个 worker / 1 个实例**；
-> 需要水平扩展时把房间状态换成 Redis 再谈多实例。
-
-### 本地验证生产形态
-
 ```bash
-./scripts/start.sh                              # 终端 A：后端 8765
-cd web && npm run build && npm run preview      # 终端 B：4173（preview 代理 /api、/ws）
-# 打开 http://localhost:4173
-```
-
-Vite preview 的代理配置在 `web/vite.config.ts` 的 `preview.proxy`。
-注意：preview 用的是**构建时**注入的地址——如果本机存在
-`web/.env.production.local`（真实域名），本地 preview 会去连线上后端；
-只做本地验证时请临时移开该文件或改用 `./scripts/dev.sh`。
-
-### 局域网 / 公网隧道（临时联调）
-
-```bash
-./scripts/dev.sh                                # 5173 前端 + 8765 后端
-cloudflared tunnel --url http://localhost:5173  # 或 ngrok http 5173
-```
-
-长期公网请用上面的 Nginx + 域名 + HTTPS。
-
-### 前后端分域部署（可选）
-
-前端在 Vercel/Netlify/CDN、后端在独立域名时：
-
-- 后端设置 `CORS_ORIGINS=https://前端域名`，建议同时设置
-  `ALLOWED_ORIGINS=https://前端域名`（WS 握手校验）；
-- 前端构建时注入 `VITE_API_BASE=https://api.example.com`（会自动推导 WS 地址），
-  或显式 `VITE_WS_URL=wss://api.example.com/ws`，见「前端环境变量」一节。
-
-如果站点是**子路径**部署（例如 `https://example.com/gomoku/`），还需要：
-
-```bash
-# web/.env.production.local
-VITE_BASE_PATH=/gomoku/
-VITE_API_BASE=https://example.com/gomoku      # 不带末尾 /api
-VITE_WS_URL=wss://example.com/gomoku/ws
-```
-
-```nginx
-# Nginx 对应配置（注意 location 末尾的 /）
-location /gomoku/ {
-    alias /www/wwwroot/gomoku/web/dist/;
-    try_files $uri $uri/ /gomoku/index.html;
-}
-location /gomoku/api/ { proxy_pass http://127.0.0.1:8000/api/; ... }
-location /gomoku/ws   {
-    proxy_pass http://127.0.0.1:8000/ws;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-}
+sudo systemctl daemon-reload
+sudo systemctl enable --now games-api
 ```
 
 ### Docker
 
-`docker compose up -d --build` 构建两个容器：
-
-| 服务 | 内容 | 端口 |
-| --- | --- | --- |
-| `api` | Python 后端，只跑 uvicorn（无静态文件） | 内部 8765 |
-| `web` | Nginx + `web/dist`，`/api` `/ws` 反代到 `api` | 宿主 `8080:80` |
-
-打开 `http://<服务器>:8080`。分域构建可传 `--build-arg VITE_API_BASE=...`
-（见 `Dockerfile.web`），`docker-compose.yml` 也已透传。
-
-> 后端镜像不包含 Node，也不构建前端；前后端可独立构建、独立部署。
+```bash
+docker compose up -d --build
+# 前端 http://localhost:8080，Nginx 容器内把 /api、/ws 反代到 api 容器
+```
 
 ### Cloudflare Workers（前端静态资源）
 
-仓库内 `web/wrangler.jsonc` 已按「静态资源模式」配置：`web/dist` 直接作为 Worker
-assets，SPA 路由由 `not_found_handling: single-page-application` 兜底。
-Workers Builds 建议设置：
-
-| 配置项 | 值 |
-| --- | --- |
-| Root directory | `web` |
-| Build command | `npm run build` |
-| Deploy command | `npx wrangler deploy` |
-| Node version | `22`（`web/.nvmrc` 已指定，`package.json` engines `>=20`） |
-
-构建环境变量（Cloudflare 项目 Settings → Variables and Secrets，勾选 Build）：
-
-```ini
-VITE_BASE_PATH=/                      # Worker 部署在域名根时
-VITE_API_BASE=https://<后端域名>       # 不含末尾 /api
-VITE_WS_URL=wss://<后端域名>/ws
-```
-
-注意事项：
-
-- Worker 只托管静态资源，**不会**把 `/api`、`/ws` 代理到 Python；必须通过上面的
-  `VITE_API_BASE` / `VITE_WS_URL` 指到后端；
-- 后端需要允许 Worker 域名：`CORS_ORIGINS=https://<worker域名>`、
-  `ALLOWED_ORIGINS=https://<worker域名>`；WebSocket 必须用 `wss://`；
-- 若前端部署在**子路径**（如 `https://example.com/gomoku/`），把
-  `VITE_BASE_PATH` 设为 `/gomoku/`，并相应调整 `VITE_API_BASE` / `VITE_WS_URL`；
-- **改了 `package.json` 的依赖必须同步提交 `package-lock.json`**：Workers 用
-  `npm ci` 安装，锁文件不同步会直接报
-  `EUSAGE ... Missing: xxx from lock file`。改完执行
-  `cd web && npm install && git add package-lock.json package.json`。
-  仓库已加 GitHub Actions（`.github/workflows/web-ci.yml`）提前检查锁文件与构建。
-
-## 配置（环境变量）
-
-后端变量：复制 `.env.example` 为 `.env`（`python run.py` / `scripts/start.sh` 会读取；Docker 用 compose 的 `environment`）。
-**所有变量都可不设，默认值即可跑。**
-
-> **监听地址/端口不在 `.env` 里**：`--host/--port` 是进程启动参数，统一通过
-> `python run.py --host ... --port ...`、`./scripts/start.sh --host ... --port ...`
-> 或 `uvicorn app.main:app --host ... --port ...` 传入。
-> `.env` 只承载应用行为配置（棋盘、CORS、Origin 白名单等）。
-> uvicorn 的 `--env-file .env` 只注入应用变量，**不会**设置监听端口。
-
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `BOARD_SIZE` | `15` | 棋盘路数（同时下发前端） |
-| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | REST 允许跨域来源，逗号分隔；同源部署可不管 |
-| `ALLOWED_ORIGINS` | 空（放行） | WS 握手 Origin 白名单，公网建议设为你的域名 |
-| `ROOM_TTL_SECONDS` | `21600` | waiting 房间空闲回收时间（6 小时） |
-| `DISCONNECT_GRACE_SECONDS` | `60` | 掉线保留席位时间 |
-
-### 前端环境变量（VITE_*，构建期注入）
-
-前端变量在 `web/` 下，按 Vite 模式区分：
-
-| 文件 | 用途 |
-| --- | --- |
-| `web/.env.example` | 模板与写法说明 |
-| `web/.env.development` | `npm run dev` 使用（默认留空 = 5173 同源 + Vite 代理） |
-| `web/.env.production` | `npm run build` 使用（默认留空 = 同源部署） |
-| `web/.env.local` / `web/.env.production.local` | 本机覆盖，已在 `.gitignore`，不会提交 |
-
-| 变量 | 默认 | 说明 |
-| --- | --- | --- |
-| `VITE_WS_URL` | 空（同源 `/ws`） | WebSocket 地址；支持 `wss://host/ws`、`/ws`、`host/ws` 三种写法 |
-| `VITE_API_BASE` | 空（同源） | 后端地址（不含末尾 `/api`）；只配它时 WS 自动推导为 `ws(s)://<host>/<路径前缀>/ws` |
-| `VITE_BASE_PATH` | `/` | 前端部署在子路径时必须设置，例如 `/gomoku/`（影响 JS/CSS 引用路径） |
-
-**默认什么都不用配**：Nginx 把页面与 `/api`、`/ws` 放在同一域名时即同源。
-只有前后端分开部署（如前端 Vercel、后端独立域名）才需要覆盖：
+`web/wrangler.jsonc` 已配置 `assets.directory = "./dist"`，生产构建使用 `VITE_BASE_PATH=/games/` 与 `VITE_WS_URL=wss://cloudflare.org.cn/games/ws`。示例：
 
 ```bash
-# 方式一：本地覆盖文件（推荐，不污染仓库）
 cd web
-cp .env.production .env.production.local
-# 编辑 .env.production.local：
-#   VITE_API_BASE=https://gomoku-api.example.com
-#   VITE_WS_URL=wss://gomoku-api.example.com/ws
 npm run build
-
-# 方式二：构建命令前注入
-cd web
-VITE_API_BASE=https://gomoku-api.example.com \
-VITE_WS_URL=wss://gomoku-api.example.com/ws \
-npm run build
-
-# 方式三：Docker 构建参数（前端镜像）
-docker build -f Dockerfile.web -t gomoku-web \
-  --build-arg VITE_API_BASE=https://gomoku-api.example.com \
-  --build-arg VITE_WS_URL=wss://gomoku-api.example.com/ws .
+npx wrangler deploy
 ```
 
-分域部署时后端记得放行前端域名：`CORS_ORIGINS=https://前端域名`，
-以及（可选但建议）`ALLOWED_ORIGINS=https://前端域名`。
+### 前后端分域部署
 
-> Vite 变量是**构建期静态注入**：改完必须重新 `npm run build`，改服务器环境变量或
-> 重启后端都不会改变已构建的 `dist`。
+同域部署无需 CORS；分域时配置后端 `CORS_ORIGINS=https://your-frontend.example.com`，前端通过 `VITE_API_BASE` / `VITE_WS_URL` 指到后端域名。`games_session` Cookie 的 `SameSite=Lax`，跨站场景需要放到同一站点下或改用 token 认证。
+
+## 环境变量
+
+### 后端（`server/.env` 或仓库根 `.env`）
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `BOARD_SIZE` | `15` | 五子棋棋盘路数（5–25） |
+| `CORS_ORIGINS` | 本地 5173 | 允许跨域的前端 Origin，逗号分隔 |
+| `ALLOWED_ORIGINS` | 空 | 额外允许的 Origin（可选） |
+| `ROOM_TTL_SECONDS` | `21600` | 空 waiting 房间回收时间；`0` 关闭 |
+| `DISCONNECT_GRACE_SECONDS` | `60` | 掉线宽限，超时按弃权结算 |
+| `HOST` / `PORT` | — | 不使用；监听地址只由 `run.py --host/--port` 决定 |
+
+### 前端（Vite 构建期变量）
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `VITE_BASE_PATH` | `/` | 子路径部署，如 `/games/` |
+| `VITE_API_BASE` | 空（同源） | REST 基础地址，如 `https://cloudflare.org.cn/games` |
+| `VITE_WS_URL` | 同源 `/ws` | WebSocket 完整地址，如 `wss://cloudflare.org.cn/games/ws` |
+
+本地覆盖推荐写在 `web/.env.production.local`（已被 `.gitignore` 忽略）。
 
 ## 测试
 
 ```bash
-# 1) 后端单元 + WebSocket 集成测试（60 个用例）
-cd server && .venv/bin/python -m pytest -q
+# 1) 后端规则 + 房间 + WebSocket 集成（当前 78 个用例）
+server/.venv/bin/python -m pytest -q server/tests
 
-# 2) 端到端：先启动后端（./scripts/start.sh），真实 WS 双人对局 + 观战 + Cookie 恢复
-cd ..      # 回到仓库根目录
+# 2) 端到端（需先启动后端）
 server/.venv/bin/python scripts/e2e.py --url http://127.0.0.1:8765
 
 # 3) 前端类型检查 + 生产构建
 cd web && npx tsc --noEmit && npm run build
 ```
 
-浏览器 UI 冒烟（可选，需要本机 Chrome；不参与运行时依赖）。
-后端不托管前端，本地跑 UI 冒烟用开发模式（Vite dev 会代理 `/api`、`/ws`）：
+UI 冒烟（Playwright，可选）：
 
 ```bash
-# 终端 A：一键起后端 8765 + 前端 5173
-./scripts/dev.sh
-
-# 终端 B：跑 UI 冒烟
-python3 -m venv /tmp/pwenv && /tmp/pwenv/bin/pip install playwright
+./scripts/start.sh
+cd web && npm run dev          # 或 npm run build && npm run preview
 /tmp/pwenv/bin/python scripts/ui_smoke.py --url http://127.0.0.1:5173
 ```
 
-它会开多个独立浏览器上下文，真实走完「建房 → 邀请链接加入 → 双方准备 →
-九手五连 → 再来一局换色 → 第三人观战 → 聊天 → 刷新断线重连 →
-清空 localStorage 后靠 Cookie 恢复 → 移动端视图」，
-并断言零控制台错误、截图输出到 `/tmp/gomoku-ui/`。
+覆盖：五子棋建房/邀请/准备/五连/再来一局/聊天/观战/刷新与 Cookie 恢复，以及中国象棋游戏切换/人机开局/红兵前进/电脑应手。
 
 ## REST / 协议
 
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/health` | 健康检查（uptime、房间数、连接数） |
-| GET | `/api/rooms` | 公开房间列表 |
-| GET | `/api/config` | 协议版本、棋盘大小等前端配置 |
-| WS | `/ws` | 全部游戏逻辑，消息格式见 [`PROTOCOL.md`](./PROTOCOL.md) |
+- `GET /api/health` → `{status,version,uptimeSeconds,rooms,connections,serverTime}`
+- `GET /api/rooms?game=gomoku|chess` → `{rooms:[{id,name,gameType,status,playerCount,maxPlayers,hostName,createdAt}]}`
+- `GET /api/config` → 协议版本、五子棋路数、游戏列表（名称/颜色）
+- `GET /ws` → WebSocket（协议 v2，详见 [`PROTOCOL.md`](PROTOCOL.md)）
 
 ## 设计与实现要点
 
-- **落子手感**：点击后立即渲染半透明乐观棋子，服务端快照回来后再替换为正式棋子；
-  棋子落下有缩放/涟漪动画、胜线会描边绘制，降低网络往返带来的迟滞感。
-- **渲染与性能**：棋盘使用 **Canvas 2D**（无 SVG/DOM 棋子），静态网格/坐标/星位缓存到离屏
-  canvas，棋子层按需重绘，悬停/光标只做轻量合成；`Board` 整体 `memo`，聊天等无关状态
-  不会触发棋盘重绘；落子/涟漪/胜线动画由 `requestAnimationFrame` 驱动，结束后自动停帧。
-  15×15 回合制场景无需游戏引擎——PixiJS/Phaser 只会引入额外体积和常驻循环。
-- **音效**：`web/src/lib/sound.ts` 用 WebAudio 振荡器/噪声即时合成，无音频资源；
-  首次手势解锁，静音状态写 localStorage，随对局页常驻开关。
-- **服务端裁决**：落子合法性、回合、五连、和棋、房间状态机全在 `server/app/game.py`
-  与 `server/app/rooms.py`；前端不做任何规则判断，只渲染服务端下发的快照。
-- **全量快照 + 增量事件**：每次房间变化广播完整 `room` 快照（含棋盘、聊天），
-  前端无状态回放压力；聊天另有 `chat` 事件用于即时追加（按 id 去重）。
-- **身份与重连**：握手时下发 `gomoku_session` Cookie（`playerId.token`，HttpOnly 30 天），
-  刷新/重开浏览器时即使 localStorage 丢失也能认回同一玩家；`welcome` 同时下发
-  `playerId` + `token`，页面重连会带上 `hello`。掉线 60s 内座位保留，对手界面显示掉线状态。
-- **多标签页**：服务端按 `playerId` 维护连接集合，广播发给所有连接；只有最后一个连接
-  断开才标记离线。多开窗口不会再出现「互相踢下线 → 自动重连 → 再踢」的死循环。
-- **人机对战**：`server/app/ai.py` 启发式评分（连子形状 + 开放端 + 防守权重），
-  电脑作为 `isBot=true` 的玩家由服务端在 0.45s 后落子；AI 房间创建即开局、单人即可重开。
-- **悔棋**：PVP 走 `undo_request` → `undo_response`（同意/拒绝）；人机房直接同意并撤回
-  电脑应手与玩家上一手。**认输**：`resign` → 对手胜，`endedReason="resign"`。
-- **战绩**：每个玩家保留最近 10 局（内存态，随 Cookie/token 身份存活），
-  连接建立和对局结束时推送。
-- **观战**：观战者不占座、不进 `players`，只接收 `room` 快照与聊天；观战断开立即退出。
-  前端在邀请链接里提供「观战」入口，满房/开局后的第三人不会被挡在大厅。
-- **安全**：昵称/房间名/聊天长度与空白校验、每连接消息限流、发送锁、
-  token 不进入任何广播、WS Origin 白名单可选、无 SQL/无文件写入。
+- **多游戏插件化**：`server/app/games/base.py` 定义 `GameRules`（开局/走子/悔棋/AI/终局/合法走法），`rooms.py` 只处理玩家、准备、悔棋、认输、观战、AI 调度、战绩与广播；新增游戏只需实现规则并注册。
+- **服务端权威**：所有走法与胜负由 Python 规则引擎计算；前端不做规则判断，只根据快照与 `legalMoves` 展示。
+- **五子棋**：15×15 棋盘，黑白轮流，横/竖/斜先成五者胜；悔棋 AI 自动同意并回退双方最近两步。
+- **中国象棋**：完整走子规则（马腿、象眼、炮架、九宫、过河兵、将帅照面、不能送将），将军/将死/困毙判定；AI 使用 alpha-beta + 子力评估（带时间/节点上限）。
+- **五子棋 AI**：启发式形状评分，只搜索已有棋子附近候选点，低延迟。
+- **身份与重连**：握手时下发 `games_session` Cookie（`playerId.token`，HttpOnly、30 天），localStorage 同步 token；多标签页共享同一身份，不互踢。
+- **渲染**：棋盘 Canvas 2D，静态网格离屏缓存，棋子/提示按需重绘；五子棋落子动画走 `requestAnimationFrame`，空闲停帧；象棋选中/合法点/将军/上一步全部在 Canvas 绘制。
+- **音效**：WebAudio 合成，无音频资源；`games.sound.enabled.v1` 持久化静音状态。
 
 ## 已知边界
 
-- 单实例内存态，重启后房间丢失（休闲棋局可接受）。
-- 无账号体系：身份靠 localStorage 的 token + 浏览器 Cookie，换设备/清 Cookie 即新玩家；
-  服务端重启后内存身份与房间会丢失（休闲局可接受）。
-- 战绩存在服务端内存（随身份存活，重启清空）；不含计时器/账号/天梯。
-- 人机 AI 是启发式（能堵四、抢五、基本攻防），不是强度很高的搜索引擎。
+- 房间、战绩、身份均保存在**服务端内存**，重启后丢失；水平扩展需要 Redis/DB。
+- 中国象棋暂未实现长将判负、重复局面判和（仅有 240 半回合自然限着和棋）。
+- 观战为只读实时快照，不支持聊天历史回放之外的复盘/棋谱导出。
+- 房间码为 6 位、房间列表按创建时间排序；大规模公开房间需要分页与检索。
+- Cookie 为 `SameSite=Lax`，需要前后端同站；跨站独立域名需自行调整部署或走 token。

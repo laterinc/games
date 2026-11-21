@@ -15,6 +15,6 @@ if ! [ -x server/.venv/bin/uvicorn ] || \
   server/.venv/bin/pip install -q -r server/requirements.txt
 fi
 
-echo "==> 启动五子棋后端（API/WS）：默认 0.0.0.0:8765，可传 --host/--port"
+echo "==> 启动棋类游戏后端（API/WS）：默认 0.0.0.0:8765，可传 --host/--port"
 cd server
 exec .venv/bin/python run.py "$@"

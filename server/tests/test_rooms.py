@@ -15,6 +15,7 @@ ROOM_KEYS = {
     "id",
     "name",
     "visibility",
+    "gameType",
     "status",
     "hostId",
     "createdAt",
@@ -199,6 +200,7 @@ def test_room_list_only_public_waiting_sorted() -> None:
         assert set(rooms[0]) == {
             "id",
             "name",
+            "gameType",
             "status",
             "playerCount",
             "maxPlayers",
@@ -218,6 +220,7 @@ def test_room_list_only_public_waiting_sorted() -> None:
             {
                 "id": room_a.id,
                 "name": "第一局",
+                "gameType": "gomoku",
                 "status": "waiting",
                 "playerCount": 2,
                 "maxPlayers": 2,

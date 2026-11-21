@@ -4,13 +4,17 @@
  */
 import type {
   ChatMessage,
+  ChessGame,
+  ChessLegalMove,
+  ChessMove,
   Color,
   CreateColor,
   EndReason,
-  Game,
-  GameMode,
+  GameType,
+  GomokuColor,
+  GomokuGame,
+  GomokuMove,
   MatchRecord,
-  Move,
   NoticeLevel,
   PendingUndo,
   Player,
@@ -49,7 +53,19 @@ function asBoolean(value: unknown, fallback = false): boolean {
 }
 
 function asColor(value: unknown): Color | null {
-  return value === 'black' || value === 'white' ? value : null;
+  return value === 'black' || value === 'white' || value === 'red' ? value : null;
+}
+
+function asGomokuColor(value: unknown, fallback: GomokuColor = 'black'): GomokuColor {
+  return value === 'black' || value === 'white' ? value : fallback;
+}
+
+function asChessColor(value: unknown, fallback: 'red' | 'black' = 'red'): 'red' | 'black' {
+  return value === 'red' || value === 'black' ? value : fallback;
+}
+
+function asGameType(value: unknown): GameType {
+  return value === 'chess' ? 'chess' : 'gomoku';
 }
 
 function asRoomStatus(value: unknown): RoomStatus {
@@ -65,12 +81,17 @@ function asNoticeLevel(value: unknown): NoticeLevel {
 }
 
 function asEndReason(value: unknown): EndReason | null {
-  return value === 'five' || value === 'draw' || value === 'forfeit' || value === 'resign'
+  return value === 'five' ||
+    value === 'draw' ||
+    value === 'forfeit' ||
+    value === 'resign' ||
+    value === 'checkmate' ||
+    value === 'stalemate'
     ? value
     : null;
 }
 
-function asGameMode(value: unknown): GameMode {
+function asGameMode(value: unknown): 'pvp' | 'ai' {
   return value === 'ai' ? 'ai' : 'pvp';
 }
 
@@ -124,17 +145,78 @@ function asBoard(value: unknown, size: number): number[][] {
   return board;
 }
 
-function asMoveList(value: unknown): Move[] {
+function asGomokuMoveList(value: unknown): GomokuMove[] {
   if (!Array.isArray(value)) return [];
-  const moves: Move[] = [];
+  const moves: GomokuMove[] = [];
   for (const item of value) {
     if (!isRecord(item)) continue;
     const point = asPoint(item);
     const color = asColor(item.color);
-    if (!point || !color) continue;
+    if (!point || (color !== 'black' && color !== 'white')) continue;
     moves.push({ row: point.row, col: point.col, color, at: asNumber(item.at, 0) });
   }
   return moves;
+}
+
+function asChessMove(value: unknown): ChessMove | null {
+  if (!isRecord(value)) return null;
+  const from = asPoint(value.from);
+  const to = asPoint(value.to);
+  const color = asChessColor(value.color, 'red');
+  if (!from || !to) return null;
+  return {
+    from,
+    to,
+    piece: asString(value.piece),
+    captured: typeof value.captured === 'string' ? value.captured : null,
+    color,
+    notation: asString(value.notation),
+    at: asNumber(value.at, 0),
+  };
+}
+
+function asChessMoveList(value: unknown): ChessMove[] {
+  if (!Array.isArray(value)) return [];
+  const moves: ChessMove[] = [];
+  for (const item of value) {
+    const move = asChessMove(item);
+    if (move) moves.push(move);
+  }
+  return moves;
+}
+
+function asChessLegalMoves(value: unknown): ChessLegalMove[] {
+  if (!Array.isArray(value)) return [];
+  const moves: ChessLegalMove[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const from = asPoint(item.from);
+    const to = asPoint(item.to);
+    if (from && to) moves.push({ from, to });
+  }
+  return moves;
+}
+
+function asChessBoard(value: unknown, rows: number, cols: number): (string | null)[][] {
+  const rawRows: unknown[] = Array.isArray(value) ? value : [];
+  const board: (string | null)[][] = [];
+  for (let row = 0; row < rows; row += 1) {
+    const rawRow = Array.isArray(rawRows[row]) ? (rawRows[row] as unknown[]) : [];
+    const cells: (string | null)[] = [];
+    for (let col = 0; col < cols; col += 1) {
+      const cell = rawRow[col];
+      cells.push(typeof cell === 'string' && cell ? cell : null);
+    }
+    board.push(cells);
+  }
+  return board;
+}
+
+function asCaptured(value: unknown): { red: string[]; black: string[] } {
+  const raw = isRecord(value) ? value : {};
+  const asList = (items: unknown): string[] =>
+    Array.isArray(items) ? items.filter((item): item is string => typeof item === 'string') : [];
+  return { red: asList(raw.red), black: asList(raw.black) };
 }
 
 function asPlayer(value: unknown, index: number): Player | null {
@@ -185,22 +267,53 @@ function asChatList(value: unknown): ChatMessage[] {
   return messages;
 }
 
-export function normalizeGame(value: unknown): Game {
+export function normalizeGomokuGame(value: unknown): GomokuGame {
   const raw = isRecord(value) ? value : {};
   const size = asBoardSize(raw.boardSize);
-  const winner = asColor(raw.winner);
+  const winner = raw.winner === 'black' || raw.winner === 'white' ? raw.winner : null;
   return {
     boardSize: size,
     board: asBoard(raw.board, size),
-    currentTurn: asColor(raw.currentTurn) ?? 'black',
+    currentTurn: asGomokuColor(raw.currentTurn),
     lastMove: asPoint(raw.lastMove),
-    moves: asMoveList(raw.moves),
+    moves: asGomokuMoveList(raw.moves),
     winner,
     winLine: asPoints(raw.winLine),
     endedReason: asEndReason(raw.endedReason),
     startedAt: asTimestamp(raw.startedAt),
     endedAt: asTimestamp(raw.endedAt),
   };
+}
+
+export function normalizeChessGame(value: unknown): ChessGame {
+  const raw = isRecord(value) ? value : {};
+  const rows = Math.min(16, Math.max(4, Math.round(asNumber(raw.rows, 10))));
+  const cols = Math.min(16, Math.max(4, Math.round(asNumber(raw.cols, 9))));
+  const winner = raw.winner === 'red' || raw.winner === 'black' ? raw.winner : null;
+  const lastMoveRaw = isRecord(raw.lastMove) ? raw.lastMove : null;
+  const lastMoveFrom = lastMoveRaw ? asPoint(lastMoveRaw.from) : null;
+  const lastMoveTo = lastMoveRaw ? asPoint(lastMoveRaw.to) : null;
+  return {
+    rows,
+    cols,
+    board: asChessBoard(raw.board, rows, cols),
+    currentTurn: asChessColor(raw.currentTurn),
+    lastMove:
+      lastMoveFrom && lastMoveTo ? { from: lastMoveFrom, to: lastMoveTo } : null,
+    moves: asChessMoveList(raw.moves),
+    winner,
+    winLine: null,
+    endedReason: asEndReason(raw.endedReason),
+    startedAt: asTimestamp(raw.startedAt),
+    endedAt: asTimestamp(raw.endedAt),
+    check: asBoolean(raw.check, false),
+    legalMoves: asChessLegalMoves(raw.legalMoves),
+    captured: asCaptured(raw.captured),
+  };
+}
+
+export function normalizeGame(value: unknown, gameType: GameType): GomokuGame | ChessGame {
+  return gameType === 'chess' ? normalizeChessGame(value) : normalizeGomokuGame(value);
 }
 
 export function normalizeRoom(value: unknown): Room | null {
@@ -211,10 +324,12 @@ export function normalizeRoom(value: unknown): Room | null {
   const rematchVotes = Array.isArray(value.rematchVotes)
     ? value.rematchVotes.filter((vote): vote is string => typeof vote === 'string')
     : [];
+  const gameType = asGameType(value.gameType);
   return {
     id,
     name: asString(value.name, `房间 ${id}`),
     visibility: asVisibility(value.visibility),
+    gameType,
     status: asRoomStatus(value.status),
     hostId: asString(value.hostId),
     createdAt: asNumber(value.createdAt, Date.now()),
@@ -224,7 +339,7 @@ export function normalizeRoom(value: unknown): Room | null {
     rematchVotes,
     mode: asGameMode(value.mode),
     pendingUndo: asPendingUndo(value.pendingUndo),
-    game: normalizeGame(value.game),
+    game: normalizeGame(value.game, gameType),
     chat: Array.isArray(value.chat) ? asChatList(value.chat) : undefined,
   };
 }
@@ -236,6 +351,7 @@ export function normalizeRoomSummary(value: unknown): RoomSummary | null {
   return {
     id,
     name: asString(value.name, `房间 ${id}`),
+    gameType: asGameType(value.gameType),
     status: asRoomStatus(value.status),
     playerCount: asNumber(value.playerCount, 0),
     maxPlayers: asNumber(value.maxPlayers, MAX_PLAYERS),
@@ -268,6 +384,7 @@ function asMatchRecord(value: unknown): MatchRecord | null {
     result,
     opponent: asString(value.opponent),
     mode: asGameMode(value.mode),
+    gameType: asGameType(value.gameType),
     endedReason: asEndReason(value.endedReason),
     moves: asNumber(value.moves, 0),
     myColor: asColor(value.myColor) ?? 'black',
@@ -349,6 +466,12 @@ export function parseServerMessage(data: string): ServerMessage | null {
 export const COLOR_LABEL: Record<Color, string> = {
   black: '黑棋',
   white: '白棋',
+  red: '红棋',
+};
+
+export const GAME_LABEL: Record<GameType, string> = {
+  gomoku: '五子棋',
+  chess: '中国象棋',
 };
 
 export const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
@@ -360,6 +483,7 @@ export const ROOM_STATUS_LABEL: Record<RoomStatus, string> = {
 export const CREATE_COLOR_LABEL: Record<CreateColor, string> = {
   black: '执黑先行',
   white: '执白后行',
+  red: '执红先行',
   random: '随机分配',
 };
 

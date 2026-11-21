@@ -1,8 +1,16 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import type { CreateColor, MatchRecord, RoomSummary, RoomVisibility, ToastLevel } from '../types';
+import type {
+  CreateColor,
+  GameType,
+  MatchRecord,
+  RoomSummary,
+  RoomVisibility,
+  ToastLevel,
+} from '../types';
 import {
   COLOR_LABEL,
   CREATE_COLOR_LABEL,
+  GAME_LABEL,
   MAX_NICKNAME_LENGTH,
   MAX_ROOM_NAME_LENGTH,
   ROOM_STATUS_LABEL,
@@ -14,6 +22,8 @@ interface LobbyProps {
   onNicknameChange: (value: string) => void;
   rooms: RoomSummary[];
   connected: boolean;
+  gameType: GameType;
+  onGameTypeChange: (gameType: GameType) => void;
   initialRoomCode: string;
   onQuickMatch: () => void;
   onCreateRoom: (options: {
@@ -35,6 +45,34 @@ const END_REASON_LABEL: Record<string, string> = {
   draw: '和棋',
   forfeit: '弃权',
   resign: '认输',
+  checkmate: '将死',
+  stalemate: '困毙',
+};
+
+const GAME_UI: Record<
+  GameType,
+  {
+    eyebrow: string;
+    description: string;
+    tags: string[];
+    note: string;
+    guide: [string, string, string];
+  }
+> = {
+  gomoku: {
+    eyebrow: '在线五子棋 · 无需注册',
+    description: '十五路棋盘，黑棋先行，先连成五子者胜。快速匹配陌生棋友，或邀请好友开一局。',
+    tags: ['15×15 标准棋盘', '服务端裁判', '断线可续 · 支持观战'],
+    note: '横 · 竖 · 斜，任意方向连成五子即胜',
+    guide: ['匹配或建房', '双方准备，黑棋先行', '横竖斜先连五子获胜'],
+  },
+  chess: {
+    eyebrow: '在线中国象棋 · 无需注册',
+    description: '九路十行，红棋先行，将死或困毙对手获胜。快速匹配棋友，或邀请好友杀一盘。',
+    tags: ['9×10 标准棋盘', '服务端裁判', '完整走子规则 · 支持观战'],
+    note: '车马炮卒，楚河汉界，将死或困毙即胜',
+    guide: ['匹配或建房', '双方准备，红棋先行', '将死或困毙对手获胜'],
+  },
 };
 
 function formatRecordTime(at: number): string {
@@ -49,11 +87,20 @@ function formatRecordTime(at: number): string {
   });
 }
 
-const COLOR_OPTIONS: Array<{ value: CreateColor; label: string }> = [
-  { value: 'black', label: CREATE_COLOR_LABEL.black },
-  { value: 'white', label: CREATE_COLOR_LABEL.white },
-  { value: 'random', label: CREATE_COLOR_LABEL.random },
-];
+function colorOptions(gameType: GameType): Array<{ value: CreateColor; label: string }> {
+  if (gameType === 'chess') {
+    return [
+      { value: 'red', label: CREATE_COLOR_LABEL.red },
+      { value: 'black', label: CREATE_COLOR_LABEL.black },
+      { value: 'random', label: CREATE_COLOR_LABEL.random },
+    ];
+  }
+  return [
+    { value: 'black', label: CREATE_COLOR_LABEL.black },
+    { value: 'white', label: CREATE_COLOR_LABEL.white },
+    { value: 'random', label: CREATE_COLOR_LABEL.random },
+  ];
+}
 
 function normalizeRoomCode(value: string): string {
   return value
@@ -123,6 +170,8 @@ export function Lobby({
   onNicknameChange,
   rooms,
   connected,
+  gameType,
+  onGameTypeChange,
   initialRoomCode,
   onQuickMatch,
   onCreateRoom,
@@ -135,16 +184,22 @@ export function Lobby({
 }: LobbyProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const [aiColor, setAiColor] = useState<CreateColor>('black');
+  const [aiColor, setAiColor] = useState<CreateColor>(gameType === 'chess' ? 'red' : 'black');
   const [roomName, setRoomName] = useState('');
   const [visibility, setVisibility] = useState<RoomVisibility>('public');
-  const [color, setColor] = useState<CreateColor>('black');
+  const [color, setColor] = useState<CreateColor>(gameType === 'chess' ? 'red' : 'black');
   const [joinCode, setJoinCode] = useState(initialRoomCode);
   const [joinError, setJoinError] = useState('');
 
   useEffect(() => {
     if (initialRoomCode) setJoinCode(initialRoomCode);
   }, [initialRoomCode]);
+
+  useEffect(() => {
+    const defaultColor: CreateColor = gameType === 'chess' ? 'red' : 'black';
+    setColor(defaultColor);
+    setAiColor(defaultColor);
+  }, [gameType]);
 
   const trimmedNickname = nickname.trim();
   const nicknameValid =
@@ -156,6 +211,9 @@ export function Lobby({
   const wins = records.filter((record) => record.result === 'win').length;
   const losses = records.filter((record) => record.result === 'loss').length;
   const draws = records.filter((record) => record.result === 'draw').length;
+  const visibleRooms = rooms.filter((room) => room.gameType === gameType);
+  const meta = GAME_UI[gameType];
+  const options = colorOptions(gameType);
 
   const handleQuickMatch = (): void => {
     if (!canStart) return;
@@ -195,19 +253,41 @@ export function Lobby({
         <div className="hero-intro">
           <span className="hero-eyebrow">
             <span className="live-dot" aria-hidden="true" />
-            在线五子棋 · 无需注册
+            {meta.eyebrow}
           </span>
           <h1 className="hero-title">
-            五子棋<span className="hero-title-tag">联机对战</span>
+            {GAME_LABEL[gameType]}
+            <span className="hero-title-tag">联机对战</span>
           </h1>
-          <p className="hero-sub">
-            十五路棋盘，黑棋先行，先连成五子者胜。快速匹配陌生棋友，或邀请好友开一局。
-          </p>
+          <p className="hero-sub">{meta.description}</p>
+
+          <div className="game-switch" role="tablist" aria-label="选择游戏">
+            {(['gomoku', 'chess'] as GameType[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={gameType === key}
+                className={`game-switch-item${gameType === key ? ' is-active' : ''}`}
+                onClick={() => onGameTypeChange(key)}
+              >
+                <span className={`game-switch-icon game-${key}`} aria-hidden="true">
+                  {key === 'gomoku' ? '五' : '象'}
+                </span>
+                <span className="game-switch-copy">
+                  <strong>{GAME_LABEL[key]}</strong>
+                  <small>{key === 'gomoku' ? '五连获胜' : '将死获胜'}</small>
+                </span>
+              </button>
+            ))}
+          </div>
 
           <div className="hero-tags" aria-hidden="true">
-            <span className="hero-tag">15×15 标准棋盘</span>
-            <span className="hero-tag">服务端裁判</span>
-            <span className="hero-tag">断线可续 · 支持观战</span>
+            {meta.tags.map((tag) => (
+              <span key={tag} className="hero-tag">
+                {tag}
+              </span>
+            ))}
           </div>
 
           <div className="hero-field">
@@ -264,6 +344,18 @@ export function Lobby({
         </div>
 
         <div className="hero-visual" aria-hidden="true">
+          {gameType === 'chess' ? (
+            <div className="hero-chess">
+              <span className="hero-chess-river">楚河 · 汉界</span>
+              <span className="hero-chess-piece red pos-r1">帅</span>
+              <span className="hero-chess-piece red pos-r2">车</span>
+              <span className="hero-chess-piece red pos-r3">炮</span>
+              <span className="hero-chess-piece black pos-b1">将</span>
+              <span className="hero-chess-piece black pos-b2">车</span>
+              <span className="hero-chess-piece black pos-b3">炮</span>
+              <span className="hero-mini-caption">将死 · 胜</span>
+            </div>
+          ) : (
           <div className="hero-mini">
             <svg className="hero-mini-line" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
               <defs>
@@ -284,7 +376,8 @@ export function Lobby({
             <span className="hero-piece stone-white pos-w2" />
             <span className="hero-mini-caption">五子连珠 · 胜</span>
           </div>
-          <p className="hero-visual-note">横 · 竖 · 斜，任意方向连成五子即胜</p>
+          )}
+          <p className="hero-visual-note">{meta.note}</p>
         </div>
       </div>
 
@@ -306,7 +399,7 @@ export function Lobby({
             </button>
           </header>
 
-          {rooms.length === 0 ? (
+          {visibleRooms.length === 0 ? (
             <div className="room-empty">
               <span className="room-empty-art" aria-hidden="true">
                 <span className="empty-stone black" />
@@ -314,7 +407,7 @@ export function Lobby({
                 <span className="empty-grid" />
               </span>
               <p className="room-empty-title">
-                {connected ? '暂无公开房间' : '正在连接服务器…'}
+                {connected ? `暂无${GAME_LABEL[gameType]}公开房间` : '正在连接服务器…'}
               </p>
               <p className="room-empty-sub">
                 {connected
@@ -346,7 +439,7 @@ export function Lobby({
             </div>
           ) : (
             <ul className="room-list">
-              {rooms.map((room) => {
+              {visibleRooms.map((room) => {
                 const full = room.playerCount >= room.maxPlayers;
                 const joinable = !full && room.status === 'waiting' && connected;
                 return (
@@ -391,15 +484,15 @@ export function Lobby({
           <div className="room-guide" aria-label="玩法说明">
             <div className="room-guide-item">
               <span className="room-guide-index">01</span>
-              <span>匹配或建房</span>
+              <span>{meta.guide[0]}</span>
             </div>
             <div className="room-guide-item">
               <span className="room-guide-index">02</span>
-              <span>双方准备，黑棋先行</span>
+              <span>{meta.guide[1]}</span>
             </div>
             <div className="room-guide-item">
               <span className="room-guide-index">03</span>
-              <span>横竖斜先连五子获胜</span>
+              <span>{meta.guide[2]}</span>
             </div>
           </div>
           <p className="rooms-note">私密房间不出现在列表中，可用房间码或邀请链接加入。</p>
@@ -525,6 +618,7 @@ export function Lobby({
                         <span className={`record-mode mode-${record.mode}`}>
                           {record.mode === 'ai' ? '人机' : '联机'}
                         </span>
+                        <span className="record-game">{GAME_LABEL[record.gameType]}</span>
                         <span>{COLOR_LABEL[record.myColor]}</span>
                         <span>{END_REASON_LABEL[record.endedReason ?? ''] ?? '对局'}</span>
                         <span>{record.moves} 手</span>
@@ -593,7 +687,7 @@ export function Lobby({
         <div className="field">
           <span className="field-label">执子颜色</span>
           <div className="segmented segmented-three" role="group" aria-label="执子颜色">
-            {COLOR_OPTIONS.map((option) => (
+            {options.map((option) => (
               <button
                 key={option.value}
                 type="button"
@@ -624,11 +718,13 @@ export function Lobby({
           </>
         }
       >
-        <p className="action-hint">与电脑对弈，无需等待对手；电脑执相反颜色，黑棋先行。</p>
+        <p className="action-hint">
+          与电脑对弈，无需等待对手；电脑执相反颜色，{gameType === 'chess' ? '红棋先行。' : '黑棋先行。'}
+        </p>
         <div className="field">
           <span className="field-label">执子颜色</span>
           <div className="segmented segmented-three" role="group" aria-label="人机对战执子颜色">
-            {COLOR_OPTIONS.map((option) => (
+            {options.map((option) => (
               <button
                 key={option.value}
                 type="button"

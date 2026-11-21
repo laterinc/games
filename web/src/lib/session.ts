@@ -8,8 +8,8 @@ export interface StoredSession {
   token: string;
 }
 
-const SESSION_KEY = 'gomoku.session.v1';
-const NICKNAME_KEY = 'gomoku.nickname.v1';
+const SESSION_KEY = 'games.session.v1';
+const NICKNAME_KEY = 'games.nickname.v1';
 
 const NICKNAME_PREFIXES = ['棋友', '弈客', '棋童', '黑白君', '落子翁', '观棋人'];
 

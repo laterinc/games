@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 #: 身份 Cookie：保存 playerId.token，浏览器刷新/重开时用于恢复同一玩家
-_SESSION_COOKIE = "gomoku_session"
+_SESSION_COOKIE = "games_session"
 _COOKIE_MAX_AGE = 30 * 24 * 3600
 
 
@@ -200,7 +200,10 @@ class MessageDispatcher:
         elif msg_type == "ping":
             await connection.send({"type": "pong", "t": now_ms()})
         elif msg_type == "list_rooms":
-            await connection.send({"type": "rooms", "rooms": self._manager.rooms_snapshot()})
+            game_type = optional_str(payload, "gameType", "") or None
+            await connection.send(
+                {"type": "rooms", "rooms": self._manager.rooms_snapshot(game_type)}
+            )
         elif msg_type == "create_room":
             await self._handle_create_room(connection, payload)
         elif msg_type == "join_room":
@@ -212,9 +215,7 @@ class MessageDispatcher:
         elif msg_type == "ready":
             await self._manager.ready(connection.player_id)
         elif msg_type == "move":
-            row = require_int(payload, "row")
-            col = require_int(payload, "col")
-            await self._manager.move(connection.player_id, row=row, col=col)
+            await self._manager.move(connection.player_id, move=payload)
         elif msg_type == "rematch":
             await self._manager.rematch(connection.player_id)
         elif msg_type == "resign":
@@ -262,6 +263,7 @@ class MessageDispatcher:
         visibility = validate_visibility(optional_str(payload, "visibility", "public") or "public")
         color = validate_color(optional_str(payload, "color", "black") or "black")
         mode = validate_mode(optional_str(payload, "mode", "pvp") or "pvp")
+        game_type = optional_str(payload, "gameType", "gomoku") or "gomoku"
         await self._manager.create_room(
             connection.player_id,
             name=name,
@@ -269,6 +271,7 @@ class MessageDispatcher:
             visibility=visibility,
             color=color,
             mode=mode,
+            game_type=game_type,
         )
 
     async def _handle_join_room(self, connection: ClientConnection, payload: dict[str, Any]) -> None:
@@ -287,7 +290,8 @@ class MessageDispatcher:
         self, connection: ClientConnection, payload: dict[str, Any]
     ) -> None:
         name = validate_player_name(require_str(payload, "name"))
-        await self._manager.quick_match(connection.player_id, name=name)
+        game_type = optional_str(payload, "gameType", "gomoku") or "gomoku"
+        await self._manager.quick_match(connection.player_id, name=name, game_type=game_type)
 
 
 async def _origin_allowed(websocket: WebSocket, settings: Settings) -> bool:

@@ -1,135 +1,262 @@
-# 五子棋联机协议 v1（WebSocket）
+# Games 协议 v2
 
-本文件是**前后端唯一契约**。后端 `server/` 与前端 `web/` 都必须严格按此实现，
-字段名、枚举值、消息类型不得私自改动。修订协议时必须同时改两端与本文件。
+面向 **多游戏联机大厅** 的 WebSocket 协议。房间生命周期与游戏无关；棋盘、走法、终局状态由 `gameType` 区分。
 
-## 1. 连接
+- 传输：WebSocket（`/ws`，生产通常在 `/games/ws`）
+- 编码：JSON 文本帧，UTF-8
+- 版本：`protocolVersion = 2`（v1 只支持五子棋，且无 `gameType` 字段）
+- 服务端权威：所有走法、悔棋、胜负由服务端规则引擎裁决
 
-- 地址：同源 `/ws`（生产环境由后端同端口提供；开发环境 Vite 代理到后端）。
-- 子协议：无。文本帧，UTF-8 JSON 对象。
-- 心跳：客户端每 20s 发送 `{"type":"ping"}`，服务端回 `{"type":"pong","t":<serverMs>}`；
-  服务端另有 30s 无消息则断开（客户端 ping 足够）。
-- 重连：客户端首次连接收到 `welcome` 后把 `playerId` + `token` 存入 localStorage；
-  断线重连时先发 `hello`（见下）恢复身份与所在房间。
-- 身份 Cookie：服务端在 WebSocket 握手响应里下发 `gomoku_session`（`playerId.token`，
-  HttpOnly、30 天）。浏览器刷新/重开后即使 localStorage 丢失，服务端也会按 Cookie
-  恢复同一个玩家（座位/昵称/所在房间不变），并回 `welcome.reconnected=true`。
-- 多连接：同一 `playerId` 允许同时存在多个 WebSocket 连接（多标签页/多窗口），
-  `room` 等广播会发送到该玩家的所有连接，**不会互相顶号断开**；只有最后一个连接
-  断开时服务端才把玩家标记为掉线。
-- 限流：单个连接 5 秒内最多 40 条消息，超出回 `RATE_LIMITED` 错误并计入，严重可断开。
+## 1. 身份
 
-## 2. 服务端 → 客户端消息
+握手时服务端下发 HttpOnly Cookie：
 
-### 2.1 welcome（连接建立后立即发送，第一条）
+```
+Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000
+```
+
+- `welcome` 消息同时返回 `playerId` / `token`；前端 localStorage 同步保存。
+- 首次连接：服务端创建新玩家，`reconnected=false`。
+- `hello` 用 token 认回：`{"type":"hello","playerId":"p_xxx","token":"t_xxx"}` → `welcome`（`reconnected=true`）。
+- 刷新页面 / 重开浏览器 / 多标签页：凭 Cookie 或 token 恢复同一身份与房间座位，不会互踢。
+- 服务端在 `welcome` 后立即推送一条 `records`（最近战绩）。
+
+## 2. 消息总览
+
+客户端 → 服务端：
+
+| type | 说明 |
+| --- | --- |
+| `hello` | 用 playerId + token 恢复身份 |
+| `create_room` | 创建房间（可指定 gameType / 人机） |
+| `join_room` | 用房间码加入（幂等） |
+| `quick_match` | 快速匹配（按 gameType） |
+| `watch_room` | 观战 |
+| `list_rooms` | 拉取公开房间（可按 gameType 过滤） |
+| `ready` | 准备 / 取消准备（pvp） |
+| `move` | 走子（形状由 gameType 决定） |
+| `resign` | 认输 |
+| `undo_request` | 发起悔棋 |
+| `undo_response` | 同意/拒绝悔棋 |
+| `rematch` | 再来一局 |
+| `leave_room` | 离开房间 / 退出观战 |
+| `chat` | 聊天 |
+| `ping` | 心跳，返回 `pong` |
+
+服务端 → 客户端：
+
+| type | 说明 |
+| --- | --- |
+| `welcome` | 身份、token、协议版本 |
+| `room` | 房间快照（`room=null` 表示已离开/房间解散） |
+| `rooms` | 公开房间列表 |
+| `chat` | 聊天消息 |
+| `records` | 最近战绩 |
+| `notice` | 提示（`level` + `text`） |
+| `error` | 错误（`code` + `message`） |
+| `pong` | 心跳响应 |
+
+## 3. 游戏与颜色
+
+| gameType | 名称 | 先手 | 颜色 | 走法输入 |
+| --- | --- | --- | --- | --- |
+| `gomoku` | 五子棋 | 黑棋 | `black` / `white` | `{row,col}` |
+| `chess` | 中国象棋 | 红棋 | `red` / `black` | `{from:{row,col},to:{row,col}}` |
+
+`create_room.color` 可传对应游戏颜色或 `"random"`；不传默认：五子棋 `black`，象棋 `red`。
+中文象棋红方在下方，黑方在上方。
+
+## 4. 大厅与房间
+
+### 4.1 create_room
 
 ```json
 {
-  "type": "welcome",
-  "playerId": "p_9f2c1a7d",
-  "token": "t_7d1e...",
-  "reconnected": false,
-  "serverTime": 1732000000123,
-  "protocolVersion": 1
+  "type": "create_room",
+  "name": "小明",
+  "gameType": "chess",
+  "roomName": "可空",
+  "visibility": "public",
+  "color": "red",
+  "mode": "pvp"
 }
 ```
 
-`token` 仅用于重连身份校验，客户端持久化保存。`reconnected=true` 表示 `hello` 成功恢复。
+- `gameType` 缺省 `"gomoku"`。
+- `mode`：`"pvp"`（默认）或 `"ai"`（电脑对手，直接开局）。
+- 成功：所有连接收到 `room`；大厅在线者收到 `rooms`。
+- 错误：`INVALID_MESSAGE`（未知游戏/颜色不适用）、`ALREADY_IN_ROOM` 等。
 
-### 2.2 room（房间状态全量快照，房间内任何变化都会广播）
+### 4.2 join_room / quick_match / watch_room
+
+```json
+{"type":"join_room","roomId":"ABC123","name":"小红"}
+{"type":"quick_match","name":"小红","gameType":"chess"}
+{"type":"watch_room","roomId":"ABC123","name":"观战者"}
+```
+
+- `join_room` 对已在同一房间的玩家**幂等**：重新下发 `room` 快照（刷新后误点加入不会报错）。
+- `quick_match` 只匹配同 `gameType` 的公开 waiting 房间；没有则新建公开房。
+- `watch_room` 不占座位，最多 20 名观战者；观战者可聊天，收到完整 `room` 快照。
+
+### 4.3 room 快照
 
 ```json
 {
-  "type": "room",
-  "room": {
-    "id": "8F3KQ2",
-    "name": "午后棋局",
-    "visibility": "public",
-    "status": "playing",
-    "hostId": "p_9f2c1a7d",
-    "createdAt": 1732000000000,
-    "updatedAt": 1732000005000,
-    "players": [
-      {"id": "p_9f2c1a7d", "name": "小明", "color": "black", "connected": true, "ready": true, "isHost": true, "isBot": false},
-      {"id": "p_4b8e0c11", "name": "小红", "color": "white", "connected": true, "ready": true, "isHost": false}
-    ],
-    "spectators": 1,
-    "rematchVotes": [],
-    "mode": "pvp",
-    "pendingUndo": null,
-    "game": {
-      "boardSize": 15,
-      "board": [[0,0,0,"...15 列..."]],
-      "currentTurn": "white",
-      "lastMove": {"row": 7, "col": 8},
-      "moves": [{"row": 7, "col": 7, "color": "black", "at": 1732000004000}],
-      "winner": null,
-      "winLine": null,
-      "endedReason": null,
-      "startedAt": 1732000003000,
-      "endedAt": null
-    }
-  }
+  "id": "ABC123",
+  "name": "小明的棋局",
+  "visibility": "public",
+  "gameType": "chess",
+  "status": "playing",
+  "hostId": "p_xxx",
+  "createdAt": 1730000000000,
+  "updatedAt": 1730000000000,
+  "players": [
+    {"id":"p_a","name":"小明","color":"red","connected":true,"ready":true,"isHost":true,"isBot":false},
+    {"id":"p_b","name":"小红","color":"black","connected":true,"ready":true,"isHost":false,"isBot":false}
+  ],
+  "spectators": 1,
+  "mode": "pvp",
+  "pendingUndo": null,
+  "rematchVotes": [],
+  "game": { "...": "按 gameType 决定，见下" },
+  "chat": []
 }
 ```
 
-离开房间后服务端发 `{"type":"room","room":null}`。
+`status`：`waiting` | `playing` | `finished`。
 
-字段约束：
-
-- `status`：`"waiting"`（不满 2 人或未全部准备）/ `"playing"` / `"finished"`。
-- `mode`：`"pvp"` 联机对战 / `"ai"` 人机对战（AI 房间创建即开局，电脑玩家 `isBot=true`）。
-- `pendingUndo`：待处理的悔棋请求 `{"playerId": "...", "name": "..."}`，无则为 `null`。
-- `visibility`：`"public"` / `"private"`。private 房间不出现在房间列表与快速匹配中。
-- `color`：`"black"` / `"white"`。`black` 先行。
-- `board`：15×15（由 `boardSize` 决定），`0` 空、`1` 黑、`2` 白。矩阵下标 `[row][col]`，
-  `row` 从上到下、`col` 从左到右，均从 0 开始。
-- `winner`：`"black"` / `"white"` / `null`；`winLine`：获胜的连续棋子坐标数组
-  `[{"row":r,"col":c}, ...]`（长度 ≥5），无胜负为 `null`。
-- `endedReason`：`"five"`（五连）/ `"draw"`（棋盘下满）/ `"forfeit"`（对手离开）/
-  `"resign"`（认输）/ `null`。
-- `moves`：按落子顺序，用于复盘/手数显示。
-- 房间内玩家最多 2 人；`players` 顺序固定为黑方在前。断线玩家的 `connected=false`，
-  60 秒内不回来则视为离开。
-- `spectators` 是当前观战人数。观战者不占座位、不参与准备/落子/重开投票，
-  但会收到全部 `room` 快照，可看棋局和最近聊天记录，也可以发言。
-- `rematchVotes`：已投票"再来一局"的 playerId 数组。双方都投后自动重开并**交换黑白**。
-
-### 2.3 rooms（大厅房间列表）
+### 4.4 rooms 列表（REST 同构）
 
 ```json
 {
-  "type": "rooms",
   "rooms": [
     {
-      "id": "8F3KQ2",
-      "name": "午后棋局",
+      "id": "ABC123",
+      "name": "小明的棋局",
+      "gameType": "gomoku",
       "status": "waiting",
       "playerCount": 1,
       "maxPlayers": 2,
       "hostName": "小明",
-      "createdAt": 1732000000000
+      "createdAt": 1730000000000
     }
   ]
 }
 ```
 
-只包含 `visibility=public` 且在 `waiting` 状态（可加入）的房间，按创建时间升序。
-大厅内（不在房间）的连接会在房间列表变化时收到推送；也可随时发 `list_rooms` 拉取。
+- 仅包含公开、waiting、pvp 房间。
+- `GET /api/rooms?game=chess` 可按游戏过滤；不传返回全部。
 
-### 2.4 pong
+### 4.5 ready / rematch / undo
 
-`{"type":"pong","t":1732000000123}`
+- `ready`：仅 pvp waiting 房间；切换准备状态；双方都准备后服务端自动开局，`game.startedAt` 被写入。
+- `rematch`：仅 finished；pvp 双方都投票后重开并交换颜色；AI 房间由人类玩家直接重开。
+- `undo_request`：playing 且至少有一手时可用；AI 房间自动同意并回退（电脑应手 + 玩家上一手）；pvp 房间经对方 `undo_response`。
+- `undo_response`：`{"type":"undo_response","accept":true|false}`，只允许非发起方回应。
+- 认输：`{"type":"resign"}`，胜方为对手，`game.endedReason="resign"`。
+- 断线宽限（默认 60s）超时、或玩家主动离开正在进行的对局：判对手胜，`endedReason="forfeit"`，随后房间重置回 waiting。
 
-### 2.5 notice（轻提示，可选展示为 toast）
+## 5. 对局状态
+
+### 5.1 五子棋 game
 
 ```json
-{"type": "notice", "level": "info", "text": "对手已离开，等待新对手"}
+{
+  "boardSize": 15,
+  "board": [[0,0,1,...], ...],
+  "currentTurn": "black",
+  "lastMove": {"row": 7, "col": 7},
+  "moves": [{"row":7,"col":7,"color":"black","at":1730000000000}],
+  "winner": null,
+  "winLine": null,
+  "endedReason": null,
+  "startedAt": 1730000000000,
+  "endedAt": null
+}
 ```
 
-`level`：`"info"` / `"success"` / `"warn"`。
+- `board`：`0` 空 / `1` 黑 / `2` 白，`[row][col]`，row 0 在上。
+- `winLine`：获胜时 5 个连续坐标。
+- `endedReason`：`five`（五连）| `draw`（棋盘下满）| `resign` | `forfeit`。
+- 走子消息：
 
-### 2.6 records（最近战绩，welcome 后紧跟一条）
+```json
+{"type":"move","row":7,"col":7}
+```
+
+### 5.2 中国象棋 game
+
+```json
+{
+  "rows": 10,
+  "cols": 9,
+  "board": [["r","n","b","a","k","a","b","n","r"], ...],
+  "currentTurn": "red",
+  "lastMove": {"from":{"row":7,"col":1},"to":{"row":7,"col":4}},
+  "moves": [
+    {
+      "from":{"row":7,"col":1},
+      "to":{"row":7,"col":4},
+      "piece":"C",
+      "captured":null,
+      "color":"red",
+      "notation":"B3E3",
+      "at":1730000000000
+    }
+  ],
+  "winner": null,
+  "winLine": null,
+  "endedReason": null,
+  "startedAt": 1730000000000,
+  "endedAt": null,
+  "check": false,
+  "legalMoves": [{"from":{"row":6,"col":0},"to":{"row":5,"col":0}}],
+  "captured": {"red": [], "black": []}
+}
+```
+
+棋子编码：
+
+| 红方 | 黑方 | 棋子 |
+| --- | --- | --- |
+| `K` | `k` | 帅 / 将 |
+| `A` | `a` | 仕 / 士 |
+| `B` | `b` | 相 / 象 |
+| `N` | `n` | 马 |
+| `R` | `r` | 车 |
+| `C` | `c` | 炮 |
+| `P` | `p` | 兵 / 卒 |
+
+- `board[r][c]` 为 `null` 或棋子编码；红方底线在 row 9，黑方底线在 row 0。
+- `legalMoves`：**当前行棋方**全部合法走法，前端用来高亮；服务端仍会再次校验。
+- `check`：当前行棋方是否被将军。
+- `captured.red` / `captured.black`：双方已吃掉的棋子编码。
+- `notation`：`起点列起点行终点列终点行`，列 A–I，行按红方视角 1–10（红底线为第 1 行）。
+- `endedReason`：`checkmate`（将死）| `stalemate`（困毙，判走子方胜）| `resign` | `forfeit` | `draw`（240 半回合自然限着）。
+- 走子消息：
+
+```json
+{"type":"move","from":{"row":7,"col":1},"to":{"row":7,"col":4}}
+```
+
+## 6. 聊天 / 战绩 / 错误
+
+### chat
+
+```json
+{"type":"chat","text":"好棋！"}
+```
+
+服务端广播给房间内玩家与观战者：
+
+```json
+{"type":"chat","message":{"id":"m_1","playerId":"p_a","name":"小明","text":"好棋！","at":1730000000000}}
+```
+
+快照中的 `chat` 保留最近 50 条；单条最长 200 字符。
+
+### records
 
 ```json
 {
@@ -137,216 +264,38 @@
   "records": [
     {
       "result": "win",
-      "opponent": "小红",
-      "mode": "pvp",
-      "endedReason": "five",
-      "moves": 17,
-      "myColor": "black",
-      "at": 1732000008000
+      "opponent": "电脑",
+      "mode": "ai",
+      "gameType": "chess",
+      "endedReason": "checkmate",
+      "moves": 34,
+      "myColor": "red",
+      "at": 1730000000000
     }
   ]
 }
 ```
 
-每个玩家最多保留 10 条，按时间升序；服务端在连接建立（welcome 之后）、hello 恢复身份后、
-以及对局结束时推送。`result`：`"win"` / `"loss"` / `"draw"`。
-战绩保存在服务端内存中，随玩家身份（Cookie/token）存活；服务端重启后清空。
+`result`：`win` | `loss` | `draw`；每位玩家保留最近 10 局。
 
-### 2.7 error
+### error
 
 ```json
-{"type": "error", "code": "NOT_YOUR_TURN", "message": "还没轮到你落子"}
+{"type":"error","code":"NOT_YOUR_TURN","message":"还没轮到你走子"}
 ```
 
-`message` 恒为中文，可直接展示。错误码全集：
+错误码：`INVALID_MESSAGE`、`UNKNOWN_TYPE`、`INVALID_NAME`、`INVALID_ROOM_NAME`、`ALREADY_IN_ROOM`、`NOT_IN_ROOM`、`ROOM_NOT_FOUND`、`ROOM_FULL`、`ROOM_STARTED`、`NOT_YOUR_TURN`、`INVALID_MOVE`、`GAME_NOT_ACTIVE`、`RATE_LIMITED`、`AUTH_FAILED`。
 
-| code | 含义 |
-| --- | --- |
-| `INVALID_MESSAGE` | JSON 解析失败 / 缺少 type / 字段类型错误 / 聊天内容为空或超长 |
-| `UNKNOWN_TYPE` | 未知消息类型 |
-| `INVALID_NAME` | 昵称不合法（1–16 字符，去首尾空白后非空） |
-| `INVALID_ROOM_NAME` | 房间名不合法（0–24 字符，空则自动命名） |
-| `ALREADY_IN_ROOM` | 已在房间中 |
-| `NOT_IN_ROOM` | 不在房间中 |
-| `ROOM_NOT_FOUND` | 房间不存在 |
-| `ROOM_FULL` | 房间已满 |
-| `ROOM_STARTED` | 对局已开始，无法加入 |
-| `NOT_YOUR_TURN` | 未轮到该玩家 |
-| `INVALID_MOVE` | 坐标越界或该点已有棋子 |
-| `GAME_NOT_ACTIVE` | 当前不在对局中 |
-| `RATE_LIMITED` | 消息过于频繁 |
-| `AUTH_FAILED` | `hello` 的 token 无效 |
+## 7. 新增游戏
 
-## 3. 客户端 → 服务端消息
+1. 在 `server/app/games/` 实现 `GameRules`：`key`、`name`、`colors`、`create_colors`、`new_game`、`apply_move`、`ai_move`、`undo`、`legal_moves`（可选 `finish` / `ai_delay_seconds`）。
+2. 在 `server/app/games/__init__.py::build_registry` 注册。
+3. `state` 必须是可直接 JSON 序列化的字典，并包含公共字段：`currentTurn`、`moves`、`lastMove`、`winner`、`endedReason`、`startedAt`、`endedAt`。
+4. 前端在 `types.ts` 增加游戏状态类型，`RoomView` 按 `gameType` 渲染棋盘，Lobby 增加游戏切换项。
+5. 房间生命周期、悔棋、认输、观战、聊天、战绩、断线重连无需改动。
 
-所有消息都是 `{"type": "...", ...}`；未知字段忽略。
+## 8. 兼容性
 
-### 3.1 hello（可选，重连）
-
-```json
-{"type": "hello", "playerId": "p_9f2c1a7d", "token": "t_7d1e..."}
-```
-
-成功：发 `welcome`（`reconnected=true`）；若该玩家仍在房间中则紧跟 `room` 快照。
-失败：发 `AUTH_FAILED` 错误，之后按新玩家处理（不分配新身份直到再次 welcome？——
-**失败时服务端保持当前全新身份不变**，客户端应清空本地 session）。
-
-### 3.2 create_room
-
-```json
-{"type": "create_room", "name": "小明", "roomName": "午后棋局", "visibility": "public", "color": "black", "mode": "pvp"}
-```
-
-- `name` 必填，昵称。
-- `roomName` 可省，空则服务端自动生成（如 `小明的棋局`）。
-- `visibility` 缺省 `public`；`color` 缺省 `black`，可选 `random`（服务端随机黑/白）。
-- `mode` 可选 `"pvp"`（默认）或 `"ai"`：`ai` 表示人机对战，创建后立即开局，电脑顶上
-  相反颜色并自动落子；该房间为私密房，不出现在大厅列表。
-- 成功：创建者进入房间，服务端广播 `room` 快照（并给大厅推送新 `rooms`）。
-
-### 3.3 join_room
-
-```json
-{"type": "join_room", "roomId": "8F3KQ2", "name": "小红"}
-```
-
-成功进入并收到 `room` 快照；失败按错误码返回。加入者颜色为创建者颜色的相反色。
-如果该玩家已经在这个房间（例如刷新后误点「加入」），视为幂等操作，直接重发房间快照。
-若创建者选了 `random`，加入时服务端已按实际颜色分配。
-
-### 3.4 watch_room（观战）
-
-```json
-{"type": "watch_room", "roomId": "8F3KQ2", "name": "路人甲"}
-```
-
-以**观战者**身份进入房间：不占玩家座位，可以看棋盘、聊天与状态变化，不能落子/准备/投票。
-适用于满房或对局已开始（`join_room` 返回 `ROOM_FULL` / `ROOM_STARTED`）的邀请链接。
-
-- 成功：服务端把该连接加入观战列表，广播 `room` 快照（`spectators` 加 1），并单独发给观战者。
-- 已在房间内对局：`ALREADY_IN_ROOM`；房间不存在：`ROOM_NOT_FOUND`；
-  观战人数超过 20：`ROOM_FULL`（message 为「观战人数已满」）。
-- 重复对同一房间发 `watch_room` 幂等，重发快照。
-- 观战者断开连接立即退出观战（无 60s 宽限）；`leave_room` 同样可用。
-
-### 3.5 quick_match
-
-```json
-{"type": "quick_match", "name": "小红"}
-```
-
-优先加入最早的、公开且仅 1 人的 `waiting` 房；没有则新建公开房（创建者执黑）。
-结果与 create/join 相同。
-
-### 3.6 list_rooms
-
-`{"type":"list_rooms"}` → 回 `rooms`。
-
-### 3.7 ready（切换准备状态）
-
-`{"type":"ready"}`：`waiting` 状态下切换自己的 `ready`。两人都 `ready` 时立即开局：
-重置棋盘，黑方先行，`status=playing`。`playing` / `finished` 状态下发送返回 `GAME_NOT_ACTIVE`。
-
-### 3.8 move
-
-```json
-{"type": "move", "row": 7, "col": 8}
-```
-
-校验：在房间、`status=playing`、是自己的颜色回合、坐标合法且为空。
-成功后广播新 `room` 快照（含 `lastMove`、`board`、`currentTurn`、胜负）。
-五连即 `status=finished`、`winner`、`winLine`、`endedReason="five"`；
-下满无五连则 `winner=null`、`endedReason="draw"`。
-
-### 3.9 rematch
-
-`{"type":"rematch"}`：`finished` 状态下投票"再来一局"。
-同一玩家重复投票幂等。双方都投票后：清空棋盘、`status=playing`、**交换黑白**、
-`winner/winLine/endedReason=null`、`rematchVotes=[]`，黑方先行（原白方执黑）。
-
-### 3.10 leave_room
-
-`{"type":"leave_room"}`：离开当前房间（玩家离开座位；观战者退出观战）。`playing` 时对手收到 `notice`，
-对局结束（`endedReason="forfeit"`，对手获胜）随后房间重置为 `waiting`（棋盘清空、
-剩余玩家为 host、ready=false），等待新对手。房主离开且房间无人则房间销毁。
-
-### 3.11 chat
-
-```json
-{"type": "chat", "text": "好棋！"}
-```
-
-`text` 去首尾空白后 1–200 字符；房间内的玩家与观战者都可发言，否则 `NOT_IN_ROOM`。
-聊天记录保留最近 50 条，随 `room.chat` 数组下发（见下），并单独推送 `chat` 消息：
-
-```json
-{"type": "chat", "message": {"id": "m_12", "playerId": "p_9f2c1a7d", "name": "小明", "text": "好棋！", "at": 1732000008000}}
-```
-
-`room.chat` 字段同样存在（最多 50 条，结构相同）。前端可二选一，
-**建议**：渲染用 `room.chat`，收到 `chat` 时追加（按 `id` 去重），收到 `room` 时整体替换。
-
-### 3.12 ping
-
-`{"type":"ping"}` → `pong`。
-
-### 3.13 resign（认输）
-
-`{"type":"resign"}`：仅对局中的真人玩家可用。对手直接获胜，`status=finished`、
-`winner=对手颜色`、`endedReason="resign"`，随后下发最新战绩。
-
-### 3.14 undo_request（请求悔棋）
-
-`{"type":"undo_request"}`：仅对局中、已有落子时可用。PVP 房间会写入
-`pendingUndo` 并广播，等待对手回应；AI 房间由电脑立即同意（撤回电脑应手 + 玩家上一手），
-并给玩家一条 `notice`。
-
-### 3.15 undo_response（回应悔棋）
-
-```json
-{"type": "undo_response", "accept": true}
-```
-
-仅对手可回应；`accept=true` 时撤回最后一手（PVP 只撤最后一手，`currentTurn` 回到该手颜色），
-`accept=false` 时保持棋盘不变；两种情况都会广播快照并通知双方。
-
-## 4. 状态机
-
-```
-create/join/quick ──► waiting ──(双方 ready)──► playing ──(五连/和棋)──► finished
-                        ▲                            │                        │
-                        │                            └──── leave ─────────────┘
-                        └──────────── 对手离开后重置（棋盘清空）◄────────────────┘
-finished ──(双方 rematch)──► playing（交换黑白）
-任意状态 ──(leave_room)──► 离开，room=null
-任意房间 ──(watch_room)──► 观战（不占座，只读；断开即退出）
-playing ──(resign)──► finished（对手胜，endedReason=resign）
-playing ──(undo_request/undo_response)──► playing（同意则回退一手）
-人机房：create(mode=ai) 直接 playing，电脑自动落子；单人 rematch 立即重开并换色
-```
-
-- 房间只剩 0 人即销毁；`waiting` 房间 6 小时无活动回收；`playing` 房间不因空闲回收。
-- 玩家断线不立即离开：标记 `connected=false`，60s 后按 `leave_room` 处理。
-  断线期间游戏状态保留；对手可在棋盘上看到"对方掉线"提示。
-
-## 5. REST 接口（生产同源，开发 Vite 代理）
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/health` | 健康检查，返回 `{"status":"ok","version":"1.0.0","uptimeSeconds":12.3,"rooms":2,"connections":3,"serverTime":...}` |
-| GET | `/api/rooms` | 返回 `{"rooms":[...]}`，结构同 `rooms` 消息 |
-| GET | `/api/config` | 返回 `{"protocolVersion":1,"boardSize":15,"maxPlayers":2,"appName":"五子棋"}` |
-
-后端只处理 `/api/*` 与 `/ws`；其他路径一律 404。前端页面/静态资源由 Nginx、CDN 或
-Vite 等外部静态服务器托管，后端不提供静态文件服务。
-
-## 6. 实现约束
-
-- 服务端为**唯一裁判**：所有合法性、胜负判定都在服务端完成，前端只做乐观 UI。
-- 昵称、房间名、聊天内容做 HTML 转义由前端负责（React 默认转义即可），服务端去除首尾空白、
-  长度限制并拒绝仅含空白的内容。
-- 服务端不得把 token 放进任何广播消息（仅 `welcome` 单发给本人）。
-- 身份 Cookie 与 `hello` token 等价，仅用于识别同一浏览器；服务端重启后内存身份失效，
-  客户端会拿到新身份（房间也随进程重启丢失）。
-- 广播顺序：先更新内存状态，再按连接逐条发送；同一连接不得并发写（每个连接一把发送锁）。
-- 所有时间戳为毫秒级 Unix 时间。
+- v1 客户端不带 `gameType`，服务端按 `gomoku` 处理并返回 `gameType:"gomoku"`；但 v1 客户端不认识 `gameType`/象棋字段。
+- v2 服务端的 `protocolVersion=2`，房间快照新增 `gameType`，战绩新增 `gameType`。
+- 五子棋 `game` 字段与 v1 兼容。
