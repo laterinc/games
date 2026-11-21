@@ -2125,12 +2125,14 @@ button {
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
-  font-size: clamp(30px, 3.8vw, 44px);
+  font-size: clamp(30px, 3.8vw, 42px);
   font-weight: 800;
   letter-spacing: 0.02em;
   line-height: 1.15;
-  color: #fff8ec;
-  text-shadow: 0 10px 34px rgba(233, 180, 95, 0.22);
+  background: linear-gradient(120deg, #fff7e8, #f2c884 54%, #d8a455);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .hero-title-tag {
@@ -2880,48 +2882,118 @@ button {
   box-shadow: 0 2px 6px rgba(120, 24, 8, 0.5);
 }
 
+/* 大厅主题色：跟随当前游戏，用于选中态与顶部光晕 */
+.lobby[data-game='gomoku'] {
+  --game-accent: 233, 180, 95;
+}
+
+.lobby[data-game='chess'] {
+  --game-accent: 226, 112, 91;
+}
+
+.lobby-hero::before {
+  content: '';
+  position: absolute;
+  top: -34%;
+  right: -8%;
+  width: 58%;
+  height: 82%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 68% 34%,
+    rgba(var(--game-accent, 233, 180, 95), 0.16),
+    transparent 66%
+  );
+  z-index: 0;
+}
+
+.game-switch-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 460px;
+  margin-top: 2px;
+}
+
+.game-switch-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+}
+
 .game-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  max-width: 420px;
-  margin: 14px 0 4px;
+  gap: 10px;
+  max-width: none;
+  margin: 0;
 }
 
 .game-switch-item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 12px;
-  border-radius: 13px;
+  gap: 11px;
+  padding: 11px 13px;
+  border-radius: 15px;
   border: 1px solid rgba(255, 255, 255, 0.09);
-  background: rgba(255, 255, 255, 0.025);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
   color: var(--text-muted);
   text-align: left;
   cursor: pointer;
-  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+  transition:
+    transform 0.16s ease,
+    border-color 0.16s ease,
+    background 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease;
 }
 
 .game-switch-item:hover {
-  border-color: rgba(233, 180, 95, 0.3);
+  transform: translateY(-1px);
+  border-color: rgba(var(--game-accent, 233, 180, 95), 0.34);
   color: var(--text);
 }
 
 .game-switch-item.is-active {
-  border-color: rgba(233, 180, 95, 0.62);
-  background: linear-gradient(140deg, rgba(233, 180, 95, 0.17), rgba(233, 180, 95, 0.05));
+  transform: translateY(-1px);
+  border-color: rgba(var(--game-accent, 233, 180, 95), 0.62);
+  background: linear-gradient(
+    140deg,
+    rgba(var(--game-accent, 233, 180, 95), 0.19),
+    rgba(var(--game-accent, 233, 180, 95), 0.045)
+  );
   color: var(--text);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
+  box-shadow:
+    0 12px 28px -18px rgba(var(--game-accent, 233, 180, 95), 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.game-switch-check {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgb(var(--game-accent, 233, 180, 95));
+  color: var(--accent-ink);
+  font-size: 11px;
+  font-weight: 800;
+  box-shadow: 0 3px 10px rgba(var(--game-accent, 233, 180, 95), 0.32);
 }
 
 .game-switch-icon {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 35px;
+  height: 35px;
   flex-shrink: 0;
-  border-radius: 10px;
-  font-size: 14px;
+  border-radius: 11px;
+  font-size: 15px;
   font-weight: 800;
 }
 
@@ -2946,7 +3018,7 @@ button {
 }
 
 .game-switch-copy strong {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.25;
 }
@@ -3421,5 +3493,15 @@ button {
 
   .game-card {
     min-height: 0;
+  }
+}
+
+@media (max-width: 400px) {
+  .game-switch-item {
+    padding: 10px 11px;
+  }
+
+  .game-switch-check {
+    display: none;
   }
 }

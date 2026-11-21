@@ -9,7 +9,6 @@ export const chessGame: GameDefinition = {
   mode: 'turn-based',
   players: '2 人',
   icon: '象',
-  eyebrow: '在线中国象棋 · 无需注册',
   description: '九路十行，红棋先行，将死或困毙对手获胜。快速匹配棋友，或邀请好友杀一盘。',
   tags: ['9×10 标准棋盘', '服务端裁判', '完整走子规则 · 支持观战'],
   note: '车马炮卒，楚河汉界，将死或困毙即胜',

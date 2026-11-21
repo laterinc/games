@@ -19,7 +19,6 @@ export interface GameDefinition {
   mode: GameMode;
   /** 首页展示的玩家人数，例如「2 人」「2–8 人」。 */
   players: string;
-  eyebrow: string;
   description: string;
   tags: string[];
   note: string;

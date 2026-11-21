@@ -9,7 +9,6 @@ export const gomokuGame: GameDefinition = {
   mode: 'turn-based',
   players: '2 人',
   icon: '五',
-  eyebrow: '在线五子棋 · 无需注册',
   description: '十五路棋盘，黑棋先行，先连成五子者胜。快速匹配陌生棋友，或邀请好友开一局。',
   tags: ['15×15 标准棋盘', '服务端裁判', '断线可续 · 支持观战'],
   note: '横 · 竖 · 斜，任意方向连成五子即胜',

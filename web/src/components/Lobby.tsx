@@ -206,38 +206,43 @@ export function Lobby({
   };
 
   return (
-    <section className="lobby">
+    <section className="lobby" data-game={gameType}>
       <div className="lobby-hero card glass">
         <div className="hero-intro">
           <span className="hero-eyebrow">
             <span className="live-dot" aria-hidden="true" />
-            {meta.eyebrow}
+            游戏大厅 · 无需注册
           </span>
-          <h1 className="hero-title">
-            {GAME_LABEL[gameType]}
-            <span className="hero-title-tag">联机对战</span>
-          </h1>
+          <h1 className="hero-title">开一局，马上开始</h1>
           <p className="hero-sub">{meta.description}</p>
 
-          <div className="game-switch" role="tablist" aria-label="选择游戏">
-            {GAME_LIST.map((game) => (
-              <button
-                key={game.type}
-                type="button"
-                role="tab"
-                aria-selected={gameType === game.type}
-                className={`game-switch-item${gameType === game.type ? ' is-active' : ''}`}
-                onClick={() => onSelectGame(game.type)}
-              >
-                <span className={`game-switch-icon game-${game.type}`} aria-hidden="true">
-                  {game.icon}
-                </span>
-                <span className="game-switch-copy">
-                  <strong>{game.label}</strong>
-                  <small>{game.short}</small>
-                </span>
-              </button>
-            ))}
+          <div className="game-switch-block">
+            <span className="game-switch-label">选择游戏</span>
+            <div className="game-switch" role="tablist" aria-label="选择游戏">
+              {GAME_LIST.map((game) => (
+                <button
+                  key={game.type}
+                  type="button"
+                  role="tab"
+                  aria-selected={gameType === game.type}
+                  className={`game-switch-item${gameType === game.type ? ' is-active' : ''}`}
+                  onClick={() => onSelectGame(game.type)}
+                >
+                  <span className={`game-switch-icon game-${game.type}`} aria-hidden="true">
+                    {game.icon}
+                  </span>
+                  <span className="game-switch-copy">
+                    <strong>{game.label}</strong>
+                    <small>{game.short}</small>
+                  </span>
+                  {gameType === game.type ? (
+                    <span className="game-switch-check" aria-hidden="true">
+                      ✓
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="hero-tags" aria-hidden="true">
