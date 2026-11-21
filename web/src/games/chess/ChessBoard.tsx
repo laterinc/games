@@ -198,17 +198,18 @@ function drawPiece(
   ctx.restore();
 }
 
-/** 上一步起点：轻底 + 金色虚线棋子轮廓 + 半透明原棋子字。 */
+/** 上一步起点：轻底 + 统一透明度的双层虚线圈 + 中性色残影字。 */
 function drawGhostPiece(
   ctx: CanvasRenderingContext2D,
   piece: string,
   cx: number,
   cy: number,
 ): void {
-  const color = pieceColor(piece);
   const glyph = PIECE_GLYPH[piece] ?? piece;
   const fontSize = Math.round(CELL * 0.48);
   const radius = PIECE_RADIUS - 1;
+  // 内外圈使用同一颜色与透明度，仅线宽/虚线节奏不同。
+  const ringColor = 'rgba(244, 207, 148, 0.82)';
   ctx.save();
 
   // 很轻的棋子底，让残影“有形”但不会像真棋子
@@ -220,44 +221,41 @@ function drawGhostPiece(
     cy,
     radius,
   );
-  fill.addColorStop(0, 'rgba(255, 246, 226, 0.18)');
-  fill.addColorStop(1, 'rgba(233, 180, 95, 0.04)');
+  fill.addColorStop(0, 'rgba(255, 246, 226, 0.16)');
+  fill.addColorStop(1, 'rgba(233, 180, 95, 0.03)');
   ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.fill();
 
-  // 外圈：加粗金色虚线 + 柔光
-  ctx.globalAlpha = 0.92;
+  // 外圈
   ctx.setLineDash([7, 5]);
   ctx.lineWidth = 2.4;
-  ctx.strokeStyle = 'rgba(244, 207, 148, 0.95)';
-  ctx.shadowColor = 'rgba(233, 180, 95, 0.5)';
-  ctx.shadowBlur = 9;
+  ctx.strokeStyle = ringColor;
+  ctx.shadowColor = 'rgba(233, 180, 95, 0.45)';
+  ctx.shadowBlur = 8;
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.shadowColor = 'transparent';
-  ctx.setLineDash([]);
 
-  // 内圈：细虚线增加层次
-  ctx.globalAlpha = 0.35;
+  // 内圈：同色同透明度，只把线变细
+  ctx.shadowColor = 'transparent';
   ctx.setLineDash([3, 5]);
   ctx.lineWidth = 1;
-  ctx.strokeStyle = 'rgba(255, 241, 214, 0.8)';
+  ctx.strokeStyle = ringColor;
   ctx.beginPath();
   ctx.arc(cx, cy, radius - 7, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
 
-  // 原棋子字：保留可辨识度，但仍是半透明
-  ctx.globalAlpha = 0.72;
-  ctx.fillStyle = color === 'red' ? 'rgba(165, 39, 26, 0.92)' : 'rgba(32, 38, 45, 0.9)';
+  // 字不再分红/黑，用中性暖白，靠阴影保持可读
+  ctx.fillStyle = 'rgba(255, 246, 228, 0.9)';
   ctx.font = `700 ${fontSize}px "STKaiti", "KaiTi", "Songti SC", serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
-  ctx.shadowColor = 'rgba(0, 0, 0, 0.35)';
-  ctx.shadowBlur = 2;
+  ctx.shadowColor = 'rgba(40, 24, 8, 0.68)';
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetY = 1;
   const metrics = ctx.measureText(glyph);
   const ascent = metrics.actualBoundingBoxAscent || fontSize * 0.88;
   const descent = metrics.actualBoundingBoxDescent || fontSize * 0.12;
