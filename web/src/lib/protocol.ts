@@ -482,7 +482,13 @@ function asRecords(value: unknown): MatchRecord[] {
 function asTankEvent(value: unknown): TankEvent | null {
   if (!isRecord(value)) return null;
   const kind = value.kind;
-  if (kind !== 'hit' && kind !== 'kill' && kind !== 'respawn' && kind !== 'match_end') {
+  if (
+    kind !== 'hit' &&
+    kind !== 'kill' &&
+    kind !== 'respawn' &&
+    kind !== 'match_end' &&
+    kind !== 'impact'
+  ) {
     return null;
   }
   return {
@@ -495,6 +501,7 @@ function asTankEvent(value: unknown): TankEvent | null {
     damage: typeof value.damage === 'number' ? value.damage : undefined,
     winnerId: typeof value.winnerId === 'string' ? value.winnerId : null,
     reason: typeof value.reason === 'string' ? value.reason : undefined,
+    surface: typeof value.surface === 'string' ? value.surface : undefined,
   };
 }
 

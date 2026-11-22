@@ -542,6 +542,14 @@ export function TankRoom({
     const onMessage = (message: { type: string }): void => {
       if (message.type !== 'tank_event') return;
       const event = (message as unknown as { event: TankEvent }).event;
+      if (event.kind === 'impact') {
+        if (event.x !== undefined && event.y !== undefined) {
+          // 场景侧按命中面生成灰尘/火花/弹坑贴花（surface 区分砖墙/集装箱/沙袋）
+          sceneRef.current?.emit({ type: 'impact', x: event.x, y: event.y });
+          sfxRef.current?.impact(proximity(event.x, event.y));
+        }
+        return;
+      }
       if (event.kind === 'hit') {
         if (event.x !== undefined && event.y !== undefined) {
           sceneRef.current?.emit({ type: 'hit', x: event.x, y: event.y });

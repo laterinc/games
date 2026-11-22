@@ -385,24 +385,27 @@ function finishTexture(canvas: HTMLCanvasElement, srgb: boolean, anisotropy: num
   return texture;
 }
 
-/** 砖砌仓库墙面：砖缝、砖块色差、雨渍与磨损，附带凹凸/粗糙度。 */
+/**
+ * 砖砌仓库墙面：砖块色差、灰缝、裂纹、风化水渍、喷涂编号、边缘破损，
+ * 附带凹凸/粗糙度（512 程序化生成）。
+ */
 function makeBrickTextures(anisotropy: number): SurfaceTextures {
-  const size = 256;
+  const size = 512;
   const { canvas, ctx } = createCanvas(size);
   const { canvas: bumpCanvas, ctx: bumpCtx } = createCanvas(size);
   const { canvas: roughCanvas, ctx: roughCtx } = createCanvas(size);
 
-  // 砖块尺寸：64×16 px（贴图世界尺寸 1.6m × 0.8m）
   ctx.fillStyle = '#6a5f53';
   ctx.fillRect(0, 0, size, size);
-  bumpCtx.fillStyle = '#4a4a4a';
+  bumpCtx.fillStyle = '#454545';
   bumpCtx.fillRect(0, 0, size, size);
   roughCtx.fillStyle = '#e8e8e8';
   roughCtx.fillRect(0, 0, size, size);
 
-  const brickW = 64;
-  const brickH = 16;
-  const brickColors = ['#8a5643', '#7c4b3a', '#96654c', '#74463a', '#8f5b45', '#684238'];
+  // 世界 tile 1.6m × 0.8m → 512px 下砖块 0.4m × 0.1m
+  const brickW = 128;
+  const brickH = 32;
+  const brickColors = ['#8d5743', '#7c4b3a', '#9a6a50', '#74463a', '#93614a', '#664339', '#a06b4d'];
   for (let row = 0; row < size / brickH; row += 1) {
     const offset = row % 2 === 0 ? 0 : brickW / 2;
     for (let col = -1; col < size / brickW + 1; col += 1) {
@@ -411,25 +414,95 @@ function makeBrickTextures(anisotropy: number): SurfaceTextures {
       const seed = row * 31 + col * 17;
       const color = brickColors[Math.floor(hash2(seed, 3.7) * brickColors.length) % brickColors.length] ?? brickColors[0];
       ctx.fillStyle = color;
-      ctx.fillRect(x + 1, y + 1, brickW - 2, brickH - 2);
-      ctx.fillStyle = `rgba(0, 0, 0, ${0.05 + hash2(seed, 7.1) * 0.14})`;
-      ctx.fillRect(x + 1, y + brickH - 5, brickW - 2, 4);
-      ctx.fillStyle = `rgba(255, 235, 210, ${0.03 + hash2(seed, 1.3) * 0.06})`;
-      ctx.fillRect(x + 1, y + 1, brickW - 2, 2);
-      bumpCtx.fillStyle = `rgba(220, 220, 220, ${0.75 + hash2(seed, 5.5) * 0.2})`;
-      bumpCtx.fillRect(x + 2, y + 2, brickW - 4, brickH - 4);
-      roughCtx.fillStyle = '#b8b8b8';
-      roughCtx.fillRect(x + 2, y + 2, brickW - 4, brickH - 4);
-      if (hash2(seed, 9.9) > 0.72) {
-        const stain = ctx.createLinearGradient(x, y, x, y + brickH * 2.2);
-        stain.addColorStop(0, 'rgba(28, 30, 30, 0.24)');
-        stain.addColorStop(1, 'rgba(28, 30, 30, 0)');
+      ctx.fillRect(x + 2, y + 2, brickW - 4, brickH - 4);
+      // 每块砖的明暗/磨损
+      ctx.fillStyle = `rgba(0, 0, 0, ${0.05 + hash2(seed, 7.1) * 0.16})`;
+      ctx.fillRect(x + 2, y + brickH - 9, brickW - 4, 7);
+      ctx.fillStyle = `rgba(255, 238, 215, ${0.03 + hash2(seed, 1.3) * 0.08})`;
+      ctx.fillRect(x + 2, y + 2, brickW - 4, 3);
+      ctx.strokeStyle = 'rgba(40, 34, 30, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 2.5, y + 2.5, brickW - 5, brickH - 5);
+      // 局部剥落（露出灰色底层）
+      if (hash2(seed, 6.2) > 0.82) {
+        ctx.fillStyle = 'rgba(120, 112, 102, 0.55)';
+        const chipW = 10 + hash2(seed, 3.3) * 22;
+        const chipH = 4 + hash2(seed, 8.8) * 8;
+        ctx.beginPath();
+        ctx.ellipse(x + 10 + hash2(seed, 4.4) * (brickW - 30), y + 6 + hash2(seed, 2.2) * (brickH - 14), chipW / 2, chipH / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      bumpCtx.fillStyle = `rgba(225, 225, 225, ${0.7 + hash2(seed, 5.5) * 0.25})`;
+      bumpCtx.fillRect(x + 3, y + 3, brickW - 6, brickH - 6);
+      roughCtx.fillStyle = '#b4b4b4';
+      roughCtx.fillRect(x + 3, y + 3, brickW - 6, brickH - 6);
+      // 雨渍
+      if (hash2(seed, 9.9) > 0.75) {
+        const stain = ctx.createLinearGradient(x, y, x, y + brickH * 3);
+        stain.addColorStop(0, 'rgba(30, 32, 30, 0.22)');
+        stain.addColorStop(1, 'rgba(30, 32, 30, 0)');
         ctx.fillStyle = stain;
-        ctx.fillRect(x + 2, y, brickW - 4, brickH * 2.2);
+        ctx.fillRect(x + 3, y, brickW - 6, brickH * 3);
       }
     }
   }
-  for (let index = 0; index < 1200; index += 1) {
+
+  // 裂纹
+  ctx.strokeStyle = 'rgba(26, 24, 22, 0.5)';
+  ctx.lineWidth = 1.6;
+  for (let crack = 0; crack < 4; crack += 1) {
+    let x = hash2(crack * 2.1, 4.4) * size;
+    let y = hash2(6.6, crack * 1.7) * size;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let step = 0; step < 6; step += 1) {
+      x += (hash2(crack + step * 0.6, 9.1) - 0.5) * 70;
+      y += (hash2(3.3, crack + step * 1.1) - 0.5) * 90;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+
+  // 顶部风化水渍（成片向下渐变）
+  for (let index = 0; index < 6; index += 1) {
+    const x = hash2(index * 2.7, 1.1) * size;
+    const width = 20 + hash2(index, 4.9) * 50;
+    const height = 100 + hash2(index, 7.7) * 220;
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, 'rgba(46, 52, 48, 0.28)');
+    gradient.addColorStop(1, 'rgba(46, 52, 48, 0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x, 0, width, height);
+  }
+
+  // 喷涂编号（褪色白漆 + 描边）
+  ctx.save();
+  ctx.translate(70, 300);
+  ctx.rotate(-0.05);
+  ctx.font = 'bold 34px "Arial Black", "PingFang SC", sans-serif';
+  ctx.fillStyle = 'rgba(232, 228, 214, 0.24)';
+  ctx.strokeStyle = 'rgba(45, 42, 38, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.fillText('B-07', 0, 0);
+  ctx.strokeText('B-07', 0, 0);
+  ctx.restore();
+
+  // 边缘破损（贴图左右边界的随机缺口）
+  for (let edge = 0; edge < 14; edge += 1) {
+    const top = hash2(edge * 3.1, 2.2) > 0.5;
+    const y = top ? 0 : size - 10;
+    const x = hash2(edge, 5.5) * size;
+    ctx.fillStyle = 'rgba(30, 28, 25, 0.5)';
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + 14, y);
+    ctx.lineTo(x + 7, y + (top ? 8 : -8));
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // 颗粒
+  for (let index = 0; index < 2200; index += 1) {
     const x = hash2(index * 1.7, 2.3) * size;
     const y = hash2(4.1, index * 0.9) * size;
     ctx.fillStyle = hash2(index, 5.9) > 0.5 ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.04)';
@@ -445,51 +518,110 @@ function makeBrickTextures(anisotropy: number): SurfaceTextures {
   };
 }
 
-/** 集装箱：竖向瓦楞 + 掉漆/锈迹，贴图偏亮灰以便用材质颜色染色。 */
+/**
+ * 集装箱：竖向瓦楞、锈斑、凹陷、警示贴纸/编号、底部泥污（512 程序化生成），
+ * 贴图偏亮灰以便用材质颜色染色。
+ */
 function makeContainerTextures(anisotropy: number): SurfaceTextures {
-  const size = 256;
+  const size = 512;
   const { canvas, ctx } = createCanvas(size);
   const { canvas: bumpCanvas, ctx: bumpCtx } = createCanvas(size);
   const { canvas: roughCanvas, ctx: roughCtx } = createCanvas(size);
 
-  ctx.fillStyle = '#c3c8cc';
+  ctx.fillStyle = '#c6cbd0';
   ctx.fillRect(0, 0, size, size);
   bumpCtx.fillStyle = '#808080';
   bumpCtx.fillRect(0, 0, size, size);
   roughCtx.fillStyle = '#9a9a9a';
   roughCtx.fillRect(0, 0, size, size);
 
-  const rib = 16;
+  // 竖向瓦楞（16 道）
+  const rib = 32;
   for (let x = 0; x < size; x += rib) {
     const gradient = ctx.createLinearGradient(x, 0, x + rib, 0);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.16)');
-    gradient.addColorStop(0.35, 'rgba(255, 255, 255, 0.03)');
-    gradient.addColorStop(0.55, 'rgba(0, 0, 0, 0.18)');
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.04)');
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 0.2)');
+    gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.02)');
+    gradient.addColorStop(0.62, 'rgba(0, 0, 0, 0.22)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.05)');
     ctx.fillStyle = gradient;
     ctx.fillRect(x, 0, rib, size);
     const bumpGradient = bumpCtx.createLinearGradient(x, 0, x + rib, 0);
-    bumpGradient.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
-    bumpGradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.5)');
+    bumpGradient.addColorStop(0, 'rgba(255, 255, 255, 0.55)');
+    bumpGradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.55)');
     bumpGradient.addColorStop(1, 'rgba(255, 255, 255, 0.35)');
     bumpCtx.fillStyle = bumpGradient;
     bumpCtx.fillRect(x, 0, rib, size);
   }
-  for (let index = 0; index < 90; index += 1) {
-    const x = hash2(index * 2.7, 1.9) * size;
-    const y = hash2(3.3, index * 1.4) * size;
-    const w = 2 + hash2(index, 7.3) * 8;
-    const h = 4 + hash2(9.1, index) * 26;
-    ctx.fillStyle = hash2(index, 2.2) > 0.4 ? 'rgba(120, 74, 48, 0.28)' : 'rgba(70, 78, 82, 0.22)';
-    ctx.fillRect(x, y, w, h);
+
+  // 上下横梁阴影
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.18)';
+  ctx.fillRect(0, 0, size, 14);
+  ctx.fillRect(0, size - 18, size, 18);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.fillRect(0, 14, size, 4);
+
+  // 凹陷（深色柔和椭圆）
+  for (let index = 0; index < 12; index += 1) {
+    const cx = hash2(index * 2.3, 1.7) * size;
+    const cy = 60 + hash2(5.1, index * 1.3) * (size - 140);
+    const rx = 12 + hash2(index, 7.7) * 34;
+    const ry = 8 + hash2(3.3, index) * 22;
+    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+    gradient.addColorStop(0, 'rgba(30, 32, 34, 0.28)');
+    gradient.addColorStop(1, 'rgba(30, 32, 34, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
-  const grime = ctx.createLinearGradient(0, size, 0, size * 0.55);
-  grime.addColorStop(0, 'rgba(40, 44, 42, 0.5)');
-  grime.addColorStop(1, 'rgba(40, 44, 42, 0)');
+
+  // 锈斑与掉漆
+  for (let index = 0; index < 140; index += 1) {
+    const x = hash2(index * 2.7, 1.9) * size;
+    const y = 30 + hash2(3.3, index * 1.4) * (size - 70);
+    const w = 3 + hash2(index, 7.3) * 12;
+    const h = 6 + hash2(9.1, index) * 44;
+    ctx.fillStyle = hash2(index, 2.2) > 0.4 ? 'rgba(120, 74, 48, 0.3)' : 'rgba(70, 78, 82, 0.22)';
+    ctx.fillRect(x, y, w, h);
+    if (hash2(index, 5.5) > 0.7) {
+      roughCtx.fillStyle = 'rgba(210, 210, 210, 0.5)';
+      roughCtx.fillRect(x, y, w, h);
+    }
+  }
+
+  // 警示贴纸（黄/白小方块 + 假文字线）
+  for (let index = 0; index < 3; index += 1) {
+    const x = 90 + hash2(index * 3.1, 4.4) * (size - 260);
+    const y = 150 + hash2(6.2, index * 1.9) * (size - 300);
+    const w = 64;
+    const h = 40;
+    ctx.fillStyle = index === 0 ? 'rgba(226, 196, 74, 0.85)' : 'rgba(228, 226, 214, 0.8)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(28, 28, 28, 0.75)';
+    ctx.fillRect(x + 6, y + 8, w - 12, 5);
+    ctx.fillRect(x + 6, y + 18, w - 20, 4);
+    ctx.fillRect(x + 6, y + 27, w - 30, 4);
+    ctx.strokeStyle = 'rgba(60, 55, 48, 0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  }
+
+  // 编号喷漆
+  ctx.save();
+  ctx.translate(size - 190, 110);
+  ctx.font = 'bold 40px "Arial Black", monospace';
+  ctx.fillStyle = 'rgba(240, 238, 228, 0.45)';
+  ctx.fillText('MSCU 2041', 0, 0);
+  ctx.restore();
+
+  // 底部泥污
+  const grime = ctx.createLinearGradient(0, size, 0, size * 0.45);
+  grime.addColorStop(0, 'rgba(38, 40, 38, 0.55)');
+  grime.addColorStop(1, 'rgba(38, 40, 38, 0)');
   ctx.fillStyle = grime;
   ctx.fillRect(0, 0, size, size);
-  roughCtx.fillStyle = 'rgba(230, 230, 230, 0.55)';
-  roughCtx.fillRect(0, size * 0.55, size, size * 0.45);
+  roughCtx.fillStyle = 'rgba(235, 235, 235, 0.6)';
+  roughCtx.fillRect(0, size * 0.5, size, size * 0.5);
 
   return {
     map: finishTexture(canvas, true, anisotropy),
@@ -745,6 +877,90 @@ function makeSandbagGeometry(length: number, thickness: number): THREE.BufferGeo
   return merged;
 }
 
+/** 边界墙/混凝土：板块分缝、污渍、涂鸦划痕（512 程序化生成）。 */
+function makeConcreteTextures(anisotropy: number): SurfaceTextures {
+  const size = 512;
+  const { canvas, ctx } = createCanvas(size);
+  const { canvas: bumpCanvas, ctx: bumpCtx } = createCanvas(size);
+  const { canvas: roughCanvas, ctx: roughCtx } = createCanvas(size);
+
+  ctx.fillStyle = '#8a9299';
+  ctx.fillRect(0, 0, size, size);
+  bumpCtx.fillStyle = '#808080';
+  bumpCtx.fillRect(0, 0, size, size);
+  roughCtx.fillStyle = '#e6e6e6';
+  roughCtx.fillRect(0, 0, size, size);
+
+  // 板块分缝（2×2 大板 + 细缝）
+  ctx.strokeStyle = 'rgba(40, 44, 46, 0.45)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(0, 0, size, size);
+  ctx.beginPath();
+  ctx.moveTo(size / 2, 0);
+  ctx.lineTo(size / 2, size);
+  ctx.moveTo(0, size / 2);
+  ctx.lineTo(size, size / 2);
+  ctx.stroke();
+  bumpCtx.strokeStyle = 'rgba(0, 0, 0, 0.6)';
+  bumpCtx.lineWidth = 3;
+  bumpCtx.strokeRect(0, 0, size, size);
+  bumpCtx.beginPath();
+  bumpCtx.moveTo(size / 2, 0);
+  bumpCtx.lineTo(size / 2, size);
+  bumpCtx.moveTo(0, size / 2);
+  bumpCtx.lineTo(size, size / 2);
+  bumpCtx.stroke();
+
+  // 色差与水渍
+  for (let index = 0; index < 40; index += 1) {
+    const cx = hash2(index * 1.7, 2.9) * size;
+    const cy = hash2(4.3, index * 1.1) * size;
+    const rx = 20 + hash2(index, 6.6) * 90;
+    const ry = 20 + hash2(8.1, index) * 70;
+    const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, rx);
+    gradient.addColorStop(0, hash2(index, 3.7) > 0.5 ? 'rgba(46, 52, 54, 0.14)' : 'rgba(190, 194, 196, 0.12)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // 竖向雨痕
+  for (let index = 0; index < 12; index += 1) {
+    const x = hash2(index * 3.3, 1.3) * size;
+    const gradient = ctx.createLinearGradient(0, 0, 0, size);
+    gradient.addColorStop(0, 'rgba(42, 46, 46, 0.25)');
+    gradient.addColorStop(1, 'rgba(42, 46, 46, 0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(x, 0, 6 + hash2(index, 2.7) * 10, size);
+  }
+  // 涂鸦划痕
+  ctx.strokeStyle = 'rgba(28, 32, 34, 0.35)';
+  ctx.lineWidth = 2;
+  for (let tag = 0; tag < 3; tag += 1) {
+    const baseX = 40 + hash2(tag * 2.2, 7.1) * (size - 160);
+    const baseY = 90 + hash2(5.5, tag) * (size - 200);
+    ctx.beginPath();
+    ctx.moveTo(baseX, baseY);
+    for (let step = 0; step < 4; step += 1) {
+      ctx.lineTo(baseX + step * 18 + hash2(tag + step, 2.2) * 14, baseY + hash2(step, tag + 4.4) * 40);
+    }
+    ctx.stroke();
+  }
+  // 颗粒
+  for (let index = 0; index < 1600; index += 1) {
+    const x = hash2(index * 2.1, 3.1) * size;
+    const y = hash2(6.3, index * 1.7) * size;
+    ctx.fillStyle = hash2(index, 4.4) > 0.5 ? 'rgba(0, 0, 0, 0.05)' : 'rgba(255, 255, 255, 0.05)';
+    ctx.fillRect(x, y, 2, 2);
+  }
+  return {
+    map: finishTexture(canvas, true, anisotropy),
+    bump: finishTexture(bumpCanvas, false, anisotropy),
+    roughness: finishTexture(roughCanvas, false, anisotropy),
+  };
+}
+
 /* -------------------------------- 环境搭建 -------------------------------- */
 
 export interface Environment {
@@ -758,6 +974,15 @@ export interface Environment {
   getShadowMapSize(): number;
   /** 相机穿模夹紧用的障碍物 AABB 列表（掩体 + 边界墙，随 setMap 重建）。 */
   getCameraColliders(): readonly THREE.Box3[];
+  /**
+   * 命中点最近的掩体/边界墙表面（世界坐标 + 法线 + 材质类型），用于命中贴花贴合表面；
+   * 没有命中掩体时返回地面。
+   */
+  getSurfaceAt(x: number, z: number): {
+    kind: 'brick' | 'metal' | 'sandbag' | 'concrete' | 'ground';
+    point: THREE.Vector3;
+    normal: THREE.Vector3;
+  };
   dispose(): void;
 }
 
@@ -949,7 +1174,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
     ),
   );
   const containerFrameMaterial = keep(
-    new THREE.MeshStandardMaterial({ color: 0x374049, roughness: 0.55, metalness: 0.5 }),
+    new THREE.MeshStandardMaterial({ color: 0x59636b, roughness: 0.5, metalness: 0.58 }),
   );
 
   // ---- 沙袋矮墙：麻布贴图 ----
@@ -967,8 +1192,23 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
     }),
   );
 
+  const concreteTextures = makeConcreteTextures(anisotropy);
+  const concreteMap = keep(concreteTextures.map);
+  const concreteBump = keep(concreteTextures.bump);
+  const concreteRoughness = keep(concreteTextures.roughness);
+  concreteMap.repeat.set(6, 2);
+  concreteBump.repeat.set(6, 2);
+  concreteRoughness.repeat.set(6, 2);
   const wallMaterial = keep(
-    new THREE.MeshStandardMaterial({ color: 0x6b767e, roughness: 0.82, metalness: 0.12 }),
+    new THREE.MeshStandardMaterial({
+      color: 0xaab0b4,
+      map: concreteMap,
+      bumpMap: concreteBump,
+      bumpScale: 0.04,
+      roughnessMap: concreteRoughness,
+      roughness: 1,
+      metalness: 0.1,
+    }),
   );
   const wallCapMaterial = keep(
     new THREE.MeshStandardMaterial({ color: 0x8f9aa2, roughness: 0.62, metalness: 0.3 }),
@@ -1096,6 +1336,31 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
   const vegetationMeshes: THREE.InstancedMesh[] = [];
   /** 相机穿模夹紧用的障碍物 AABB（掩体 + 边界墙）。 */
   const cameraColliders: THREE.Box3[] = [];
+  /** 按地图生成的细节几何（建筑通风/天线/集装箱门锁/墙顶压顶石与管线），切换地图时释放。 */
+  const detailGeometries: THREE.BufferGeometry[] = [];
+
+  function mergeDetailParts(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+    const converted = parts.map((part) => (part.index ? part.toNonIndexed() : part));
+    const merged = mergeGeometries(converted, false);
+    for (const part of parts) part.dispose();
+    for (const part of converted) {
+      if (!parts.includes(part)) part.dispose();
+    }
+    if (!merged) throw new Error('场景细节几何合并失败');
+    merged.computeBoundingSphere();
+    return merged;
+  }
+
+  /** 命中查询用的掩体表面记录（随 setMap 重建）。 */
+  interface SurfaceObstacle {
+    x: number;
+    y: number;
+    width: number;
+    depth: number;
+    kind: 'brick' | 'metal' | 'sandbag';
+    height: number;
+  }
+  const surfaceObstacles: SurfaceObstacle[] = [];
 
   function pushCollider(
     centerX: number,
@@ -1152,6 +1417,65 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
       strip.scale.set(scaleX, 0.07, scaleZ);
       wallGroup.add(strip);
     }
+    // 内侧管线（含支架）
+    const pipeMaterial = keep(
+      new THREE.MeshStandardMaterial({ color: 0x39424b, roughness: 0.55, metalness: 0.55 }),
+    );
+    const pipeParts: THREE.BufferGeometry[] = [];
+    const pipeHeight = 1.02;
+    const pipeInset = 0.14;
+    for (const [cx, cz, scaleX, scaleZ] of segments) {
+      const alongX = scaleX > scaleZ;
+      const pipe = new THREE.CylinderGeometry(0.055, 0.055, (alongX ? scaleX : scaleZ) * 0.98, 6);
+      if (alongX) pipe.rotateZ(-Math.PI / 2);
+      else pipe.rotateX(Math.PI / 2);
+      const inwardX = cx < width / 2 ? pipeInset : cx > width / 2 ? -pipeInset : 0;
+      const inwardZ = cz < height / 2 ? pipeInset : cz > height / 2 ? -pipeInset : 0;
+      pipe.translate(cx + inwardX, pipeHeight, cz + inwardZ);
+      pipeParts.push(pipe);
+      const bracketCount = Math.max(2, Math.floor((alongX ? width : height) / 6));
+      for (let bracket = 0; bracket < bracketCount; bracket += 1) {
+        const t = (bracket + 0.5) / bracketCount;
+        const bracketBox = new THREE.BoxGeometry(0.12, 0.24, 0.12);
+        bracketBox.translate(
+          alongX ? cx - scaleX / 2 + scaleX * t : cx + inwardX,
+          pipeHeight - 0.16,
+          alongX ? cz + inwardZ : cz - scaleZ / 2 + scaleZ * t,
+        );
+        pipeParts.push(bracketBox);
+      }
+    }
+    const pipes = mergeDetailParts(pipeParts);
+    detailGeometries.push(pipes);
+    const pipeMesh = new THREE.Mesh(pipes, pipeMaterial);
+    wallGroup.add(pipeMesh);
+
+    // 墙顶压顶石（分段，合并 1 drawcall）
+    const copingParts: THREE.BufferGeometry[] = [];
+    for (const [cx, cz, scaleX, scaleZ] of segments) {
+      const alongX = scaleX > scaleZ;
+      const length = alongX ? scaleX : scaleZ;
+      const count = Math.max(2, Math.floor(length / 1.5));
+      for (let stone = 0; stone < count; stone += 1) {
+        const t = (stone + 0.5) / count;
+        const block = new THREE.BoxGeometry(
+          alongX ? (length / count) * 0.96 : thickness * 1.2,
+          0.14,
+          alongX ? thickness * 1.2 : (length / count) * 0.96,
+        );
+        block.translate(
+          alongX ? cx - length / 2 + length * t : cx,
+          wallHeight + 0.16,
+          alongX ? cz : cz - length / 2 + length * t,
+        );
+        copingParts.push(block);
+      }
+    }
+    const copings = mergeDetailParts(copingParts);
+    detailGeometries.push(copings);
+    const copingMesh = new THREE.Mesh(copings, wallCapMaterial);
+    wallGroup.add(copingMesh);
+
     // 四角立柱，强化「竞技场」边界感
     const corners: Array<[number, number]> = [
       [-thickness / 2, -thickness / 2],
@@ -1206,6 +1530,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
       if (kind === 'warehouse') {
         const height = 3.1 + hash2(index * 0.73, 4.1) * 2.2;
         pushCollider(centerX, centerZ, width, depth, height + 0.4);
+        surfaceObstacles.push({ x: obstacle.x, y: obstacle.y, width, depth, kind: 'brick', height });
         const bodyGeometry = new THREE.BoxGeometry(width, height, depth);
         scaleBoxUvs(bodyGeometry, width, height, depth, 1.6, 0.8);
         dynamicGeometries.push(bodyGeometry);
@@ -1225,16 +1550,27 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
         roof.position.y = height + 0.24;
         roof.scale.set(width * 0.96, 0.14, depth * 0.96);
         group.add(roof);
+        // 屋顶通风口 + 天线 + 排水管（合并成 1 个 drawcall）
+        const roofParts: THREE.BufferGeometry[] = [];
         for (let ventIndex = 0; ventIndex < 2; ventIndex += 1) {
-          const vent = new THREE.Mesh(unitBox, ventMaterial);
-          vent.position.set(
+          const vent = new THREE.BoxGeometry(0.62, 0.4, 0.62);
+          vent.translate(
             (hash2(index * 1.7 + ventIndex * 3.1, 2.2) - 0.5) * Math.max(0.5, width - 1.6),
             height + 0.36,
             (hash2(index * 2.3 + ventIndex, 4.4) - 0.5) * Math.max(0.5, depth - 1.6),
           );
-          vent.scale.set(0.62, 0.4, 0.62);
-          group.add(vent);
+          roofParts.push(vent);
         }
+        const antenna = new THREE.CylinderGeometry(0.03, 0.05, 1.2, 5);
+        antenna.translate(width * 0.32, height + 0.9, depth * 0.3);
+        roofParts.push(antenna);
+        const drain = new THREE.CylinderGeometry(0.08, 0.08, height, 6);
+        drain.translate(-width / 2 + 0.14, height / 2, depth / 2 - 0.14);
+        roofParts.push(drain);
+        const roofDetails = mergeDetailParts(roofParts);
+        detailGeometries.push(roofDetails);
+        const roofDetailMesh = new THREE.Mesh(roofDetails, ventMaterial);
+        group.add(roofDetailMesh);
         const windowStrip = new THREE.Mesh(unitBox, warehouseLightMaterial);
         windowStrip.position.set(0, height * 0.62, depth / 2 + 0.03);
         windowStrip.scale.set(width * 0.42, 0.42, 0.06);
@@ -1244,6 +1580,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
         const thickness = Math.min(width, depth);
         const height = 2.6;
         pushCollider(centerX, centerZ, width, depth, height + 0.2);
+        surfaceObstacles.push({ x: obstacle.x, y: obstacle.y, width, depth, kind: 'metal', height });
         // 长边沿局部 x；若地图矩形是纵向的则整体转 90°
         group.rotation.y = depth > width ? Math.PI / 2 : 0;
         const bodyGeometry = new THREE.BoxGeometry(length, height, thickness);
@@ -1267,10 +1604,47 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
         bottomRail.position.y = 0.09;
         bottomRail.scale.set(length + 0.08, 0.18, thickness + 0.08);
         group.add(bottomRail);
+
+        // 门缝、门把手、锁杆、角件、顶部通风口（合并 1 个 drawcall）
+        const detailParts: THREE.BufferGeometry[] = [];
+        const doorX = length / 2;
+        const doorPlate = new THREE.BoxGeometry(0.05, height * 0.9, thickness * 0.94);
+        doorPlate.translate(doorX + 0.03, height / 2, 0);
+        detailParts.push(doorPlate);
+        const middleSeam = new THREE.BoxGeometry(0.05, height * 0.9, 0.05);
+        middleSeam.translate(doorX + 0.06, height / 2, 0);
+        detailParts.push(middleSeam);
+        for (const rodZ of [-thickness * 0.36, -thickness * 0.12, thickness * 0.12, thickness * 0.36]) {
+          const rod = new THREE.CylinderGeometry(0.05, 0.05, height * 0.86, 6);
+          rod.translate(doorX + 0.09, height / 2, rodZ);
+          detailParts.push(rod);
+          const handle = new THREE.BoxGeometry(0.06, 0.22, 0.06);
+          handle.translate(doorX + 0.12, height * 0.62, rodZ + 0.08);
+          detailParts.push(handle);
+        }
+        for (const cornerX of [-length / 2 + 0.09, length / 2 - 0.09]) {
+          for (const cornerY of [0.12, height - 0.12]) {
+            for (const cornerZ of [-thickness / 2 + 0.09, thickness / 2 - 0.09]) {
+              const casting = new THREE.BoxGeometry(0.18, 0.18, 0.18);
+              casting.translate(cornerX, cornerY, cornerZ);
+              detailParts.push(casting);
+            }
+          }
+        }
+        for (let ventIndex = 0; ventIndex < 2; ventIndex += 1) {
+          const vent = new THREE.BoxGeometry(0.5, 0.14, 0.7);
+          vent.translate((ventIndex - 0.5) * length * 0.28, height + 0.08, 0);
+          detailParts.push(vent);
+        }
+        const containerDetails = mergeDetailParts(detailParts);
+        detailGeometries.push(containerDetails);
+        const containerDetailMesh = new THREE.Mesh(containerDetails, containerFrameMaterial);
+        group.add(containerDetailMesh);
       } else {
         const length = Math.max(width, depth);
         const thickness = Math.min(width, depth);
         pushCollider(centerX, centerZ, width, depth, 0.85);
+        surfaceObstacles.push({ x: obstacle.x, y: obstacle.y, width, depth, kind: 'sandbag', height: 0.85 });
         group.rotation.y = depth > width ? Math.PI / 2 : 0;
         const bagGeometry = makeSandbagGeometry(length, thickness);
         dynamicGeometries.push(bagGeometry);
@@ -1635,6 +2009,9 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
     apron.position.set(center.x, -0.06, center.z);
 
     cameraColliders.length = 0;
+    surfaceObstacles.length = 0;
+    for (const geometry of detailGeometries) geometry.dispose();
+    detailGeometries.length = 0;
     buildWalls(width, height);
     buildObstacles(map);
     buildSpawns(map.spawns ?? []);
@@ -1684,7 +2061,80 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
     return sun.shadow.mapSize.x;
   }
 
+  /** 命中点最近的掩体/边界墙表面（带法线），用于贴花贴合。 */
+  function getSurfaceAt(x: number, z: number): {
+    kind: 'brick' | 'metal' | 'sandbag' | 'concrete' | 'ground';
+    point: THREE.Vector3;
+    normal: THREE.Vector3;
+  } {
+    const margin = 0.45;
+    let best:
+      | { kind: 'brick' | 'metal' | 'sandbag'; point: THREE.Vector3; normal: THREE.Vector3 }
+      | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const obstacle of surfaceObstacles) {
+      if (
+        x < obstacle.x - margin ||
+        x > obstacle.x + obstacle.width + margin ||
+        z < obstacle.y - margin ||
+        z > obstacle.y + obstacle.depth + margin
+      ) {
+        continue;
+      }
+      const distanceLeft = x - obstacle.x;
+      const distanceRight = obstacle.x + obstacle.width - x;
+      const distanceFront = z - obstacle.y;
+      const distanceBack = obstacle.y + obstacle.depth - z;
+      const candidates: Array<[number, THREE.Vector3, THREE.Vector3]> = [
+        [distanceLeft, new THREE.Vector3(obstacle.x, obstacle.height * 0.55, z), new THREE.Vector3(-1, 0, 0)],
+        [distanceRight, new THREE.Vector3(obstacle.x + obstacle.width, obstacle.height * 0.55, z), new THREE.Vector3(1, 0, 0)],
+        [distanceFront, new THREE.Vector3(x, obstacle.height * 0.55, obstacle.y), new THREE.Vector3(0, 0, -1)],
+        [distanceBack, new THREE.Vector3(x, obstacle.height * 0.55, obstacle.y + obstacle.depth), new THREE.Vector3(0, 0, 1)],
+      ];
+      for (const [distance, point, normal] of candidates) {
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = { kind: obstacle.kind, point, normal };
+        }
+      }
+    }
+    if (best) return best;
+
+    // 边界墙内侧
+    const wallMargin = 0.9;
+    if (x < wallMargin || x > currentWidth - wallMargin || z < wallMargin || z > currentHeight - wallMargin) {
+      const point = new THREE.Vector3(
+        THREE.MathUtils.clamp(x, 0, currentWidth),
+        1.0,
+        THREE.MathUtils.clamp(z, 0, currentHeight),
+      );
+      const normal = new THREE.Vector3(0, 0, 0);
+      if (x < wallMargin) {
+        point.x = 0;
+        normal.set(1, 0, 0);
+      } else if (x > currentWidth - wallMargin) {
+        point.x = currentWidth;
+        normal.set(-1, 0, 0);
+      } else if (z < wallMargin) {
+        point.z = 0;
+        normal.set(0, 0, 1);
+      } else {
+        point.z = currentHeight;
+        normal.set(0, 0, -1);
+      }
+      return { kind: 'concrete', point, normal };
+    }
+
+    return {
+      kind: 'ground',
+      point: new THREE.Vector3(x, 0.02, z),
+      normal: new THREE.Vector3(0, 1, 0),
+    };
+  }
+
   function dispose(): void {
+    for (const geometry of detailGeometries) geometry.dispose();
+    detailGeometries.length = 0;
     for (const mesh of vegetationMeshes) mesh.dispose();
     vegetationMeshes.length = 0;
     for (const geometry of dynamicGeometries) geometry.dispose();
@@ -1702,6 +2152,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
     setShadowQuality,
     getShadowMapSize,
     getCameraColliders: () => cameraColliders,
+    getSurfaceAt,
     dispose,
   };
 }
@@ -2281,7 +2732,8 @@ export function createModelFactory(): ModelFactory {
     turret.position.y = 0.98;
     root.add(turret);
     const turretPaint = new THREE.Mesh(turretPaintGeometry, bodyMaterials[0]);
-    turretPaint.castShadow = true;
+    // 阴影只保留车体漆面大件，炮塔不投影（控制全后处理链三角面预算）
+    turretPaint.castShadow = false;
     turret.add(turretPaint);
     const turretAccent = new THREE.Mesh(turretAccentGeometry, accentMaterial);
     turret.add(turretAccent);

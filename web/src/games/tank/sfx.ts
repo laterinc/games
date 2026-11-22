@@ -234,6 +234,39 @@ export class TankSfx {
     }
   }
 
+  /** 子弹打在墙体/掩体上的闷响（带少量噪声）。 */
+  impact(volume = 1): void {
+    const context = this.ensure();
+    if (!context || !this.master) return;
+    const now = context.currentTime;
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(0.1 * volume, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    gain.connect(this.master);
+    const thud = context.createOscillator();
+    thud.type = 'triangle';
+    thud.frequency.setValueAtTime(320, now);
+    thud.frequency.exponentialRampToValueAtTime(140, now + 0.1);
+    thud.connect(gain);
+    thud.start(now);
+    thud.stop(now + 0.13);
+
+    const noise = this.noiseSource(context);
+    if (noise) {
+      const noiseGain = context.createGain();
+      noiseGain.gain.setValueAtTime(0.06 * volume, now);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+      const bandpass = context.createBiquadFilter();
+      bandpass.type = 'bandpass';
+      bandpass.frequency.value = 1200;
+      noise.connect(bandpass);
+      bandpass.connect(noiseGain);
+      noiseGain.connect(this.master);
+      noise.start(now);
+      noise.stop(now + 0.1);
+    }
+  }
+
   /** 装填完成：轻微机械咔哒。 */
   reloadReady(): void {
     const context = this.ensure();

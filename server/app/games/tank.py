@@ -702,12 +702,28 @@ class TankWorld:
                     or bullet.y < 0.0
                     or bullet.y > WORLD_SIZE
                 ):
+                    events.append(
+                        {
+                            "kind": "impact",
+                            "x": round(bullet.x, 2),
+                            "y": round(bullet.y, 2),
+                            "surface": "wall",
+                        }
+                    )
                     removed = True
                     break
                 if any(
                     _circle_hits_rect(bullet.x, bullet.y, BULLET_RADIUS, rect)
                     for rect in self._obstacles
                 ):
+                    events.append(
+                        {
+                            "kind": "impact",
+                            "x": round(bullet.x, 2),
+                            "y": round(bullet.y, 2),
+                            "surface": "obstacle",
+                        }
+                    )
                     removed = True
                     break
                 victim = self._find_bullet_target(bullet)

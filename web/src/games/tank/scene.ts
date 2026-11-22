@@ -43,6 +43,47 @@ export interface SceneEntityView {
   shielded: boolean;
 }
 
+/** 履带印贴图：柔和边缘的深色履带带，带横向履带板纹理（只用 alpha 通道）。 */
+function makeTrackMarkTexture(): THREE.CanvasTexture {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('无法创建履带印贴图：Canvas 2D 上下文不可用');
+  // 左右软边
+  const horizontal = ctx.createLinearGradient(0, 0, size, 0);
+  horizontal.addColorStop(0, 'rgba(0,0,0,0)');
+  horizontal.addColorStop(0.16, 'rgba(0,0,0,0.85)');
+  horizontal.addColorStop(0.84, 'rgba(0,0,0,0.85)');
+  horizontal.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = horizontal;
+  ctx.fillRect(0, 0, size, size);
+  // 横向履带板（沿 v 方向交替明暗）
+  ctx.globalCompositeOperation = 'destination-out';
+  for (let y = 0; y < size; y += 8) {
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(0, y, size, 3);
+  }
+  for (let index = 0; index < 60; index += 1) {
+    const x = hash2(index, 1.7) * size;
+    const y = hash2(2.9, index) * size;
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(x, y, 1.5, 1.5);
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+/** 确定性伪随机（履带印贴图颗粒用）。 */
+function hash2(x: number, y: number): number {
+  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+
 /** 坦克头顶名字标签（entityId = 坦克实体 id = slot + 1）。 */
 export interface SceneNameTag {
   entityId: number;
@@ -55,6 +96,8 @@ export interface SceneNameTag {
 export type SceneFxEvent =
   | { type: 'muzzle'; x: number; y: number; angle: number }
   | { type: 'hit'; x: number; y: number }
+  /** 子弹命中掩体/边界墙：场景内部按命中面材质分层（砖屑/金属火花/沙粒 + 表面贴花）。 */
+  | { type: 'impact'; x: number; y: number }
   | { type: 'kill'; x: number; y: number };
 
 /** 调试统计：预览页/性能排查用，不参与渲染逻辑。 */
@@ -197,6 +240,9 @@ interface TrackedTank {
   hull: number;
   turret: number;
   signedSpeed: number;
+  /** 履带印锚点：上一次留下印记的位置。 */
+  markX: number;
+  markY: number;
   smokeTimer: number;
   sparkTimer: number;
 }
@@ -550,6 +596,134 @@ export function createTankScene(
     pulseRingMaterial.color.copy(team.clone().multiplyScalar(1.2));
   }
 
+  /* ------------------------------ 履带印 ------------------------------ */
+  const TRACK_MARK_CAPACITY = 200;
+  const trackMarkTexture = makeTrackMarkTexture();
+  const trackMarkGeometry = new THREE.PlaneGeometry(1, 1);
+  trackMarkGeometry.rotateX(-Math.PI / 2);
+  const trackMarkAlphaAttribute = new THREE.InstancedBufferAttribute(
+    new Float32Array(TRACK_MARK_CAPACITY),
+    1,
+  ).setUsage(THREE.DynamicDrawUsage);
+  trackMarkGeometry.setAttribute('aAlpha', trackMarkAlphaAttribute);
+  const trackMarkMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+      uMap: { value: trackMarkTexture },
+      uColor: { value: new THREE.Color(0x0d1114) },
+    },
+    vertexShader: /* glsl */ `
+      attribute float aAlpha;
+      varying vec2 vUv;
+      varying float vAlpha;
+      void main() {
+        vUv = uv;
+        vAlpha = aAlpha;
+        vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+      }
+    `,
+    fragmentShader: /* glsl */ `
+      uniform sampler2D uMap;
+      uniform vec3 uColor;
+      varying vec2 vUv;
+      varying float vAlpha;
+      void main() {
+        float alpha = texture2D(uMap, vUv).a * vAlpha;
+        if (alpha < 0.01) discard;
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+  const trackMarkMesh = new THREE.InstancedMesh(
+    trackMarkGeometry,
+    trackMarkMaterial,
+    TRACK_MARK_CAPACITY,
+  );
+  trackMarkMesh.frustumCulled = false;
+  trackMarkMesh.renderOrder = 1;
+  scene.add(trackMarkMesh);
+  const trackMarkAge = new Float32Array(TRACK_MARK_CAPACITY).fill(1e6);
+  const trackMarkLife = new Float32Array(TRACK_MARK_CAPACITY).fill(8);
+  let trackMarkCursor = 0;
+  const trackMarkMatrix = new THREE.Matrix4();
+  const trackMarkQuaternion = new THREE.Quaternion();
+  const trackMarkEuler = new THREE.Euler();
+  const trackMarkPosition = new THREE.Vector3();
+  const trackMarkScale = new THREE.Vector3();
+  for (let slot = 0; slot < TRACK_MARK_CAPACITY; slot += 1) {
+    trackMarkMesh.setMatrixAt(slot, trackMarkMatrix.makeScale(0, 0, 0));
+  }
+  trackMarkMesh.instanceMatrix.needsUpdate = true;
+
+  /** 在 (x,z) 处沿 heading 方向留下左右两条履带印。 */
+  function spawnTrackMark(x: number, z: number, heading: number): void {
+    const perpX = -Math.sin(heading);
+    const perpZ = Math.cos(heading);
+    for (const side of [-1, 1]) {
+      const slot = trackMarkCursor;
+      trackMarkCursor = (trackMarkCursor + 1) % TRACK_MARK_CAPACITY;
+      trackMarkAge[slot] = 0;
+      trackMarkLife[slot] = 7 + Math.random() * 2;
+      trackMarkPosition.set(x + perpX * side * 0.42, 0.018, z + perpZ * side * 0.42);
+      trackMarkEuler.set(0, -heading, 0);
+      trackMarkQuaternion.setFromEuler(trackMarkEuler);
+      trackMarkScale.set(0.62, 1, 0.34);
+      trackMarkMatrix.compose(trackMarkPosition, trackMarkQuaternion, trackMarkScale);
+      trackMarkMesh.setMatrixAt(slot, trackMarkMatrix);
+      trackMarkAlphaAttribute.array[slot] = 0.55;
+    }
+    trackMarkMesh.instanceMatrix.needsUpdate = true;
+    trackMarkAlphaAttribute.needsUpdate = true;
+  }
+
+  /** 每帧检查坦克位移并铺履带印，同时推进淡出。 */
+  function updateTrackMarks(dt: number): void {
+    for (const tracked of tanks.values()) {
+      const dx = tracked.x - tracked.markX;
+      const dz = tracked.y - tracked.markY;
+      const distance = Math.hypot(dx, dz);
+      if (distance > 3) {
+        // 复活/传送：直接重置锚点，不画一条长线
+        tracked.markX = tracked.x;
+        tracked.markY = tracked.y;
+        continue;
+      }
+      if (distance < 0.4) continue;
+      const dirX = dx / distance;
+      const dirZ = dz / distance;
+      const heading = Math.atan2(dirZ, dirX);
+      const steps = Math.min(6, Math.floor(distance / 0.4));
+      for (let step = 0; step < steps; step += 1) {
+        const t = (step + 1) * 0.4;
+        spawnTrackMark(tracked.markX + dirX * t, tracked.markY + dirZ * t, heading);
+      }
+      tracked.markX = tracked.x;
+      tracked.markY = tracked.y;
+    }
+
+    let dirty = false;
+    for (let slot = 0; slot < TRACK_MARK_CAPACITY; slot += 1) {
+      if (trackMarkAge[slot] > trackMarkLife[slot]) continue;
+      trackMarkAge[slot] += dt;
+      const remain = 1 - trackMarkAge[slot] / trackMarkLife[slot];
+      trackMarkAlphaAttribute.array[slot] = Math.max(0, remain) * 0.55;
+      if (remain <= 0) {
+        trackMarkAge[slot] = trackMarkLife[slot] + 1;
+        trackMarkMesh.setMatrixAt(slot, trackMarkMatrix.makeScale(0, 0, 0));
+      }
+      dirty = true;
+    }
+    if (dirty) {
+      trackMarkAlphaAttribute.needsUpdate = true;
+      trackMarkMesh.instanceMatrix.needsUpdate = true;
+    }
+  }
+
   /* ------------------------------ 坦克名字标签 ------------------------------ */
   const nameTagStates = new Map<number, SceneNameTag>();
   const nameTagSprites = new Map<number, THREE.Sprite>();
@@ -725,6 +899,8 @@ export function createTankScene(
         hull: entity.hull,
         turret: entity.turret,
         signedSpeed: 0,
+        markX: entity.x,
+        markY: entity.y,
         smokeTimer: 0,
         sparkTimer: 0,
       };
@@ -1025,6 +1201,7 @@ export function createTankScene(
       aimDotMaterial.opacity = aligned ? 0.9 : 0.45 + pulse * 0.16;
     }
 
+    updateTrackMarks(step);
     fx.update(step);
     environment.update(step, camera);
 
@@ -1262,6 +1439,9 @@ export function createTankScene(
       case 'hit':
         fx.hit(event.x, event.y);
         break;
+      case 'impact':
+        fx.impact(event.x, event.y, environment.getSurfaceAt(event.x, event.y));
+        break;
       case 'kill':
         fx.kill(event.x, event.y);
         break;
@@ -1315,6 +1495,10 @@ export function createTankScene(
     tankPool.length = 0;
     bulletPool.length = 0;
 
+    trackMarkGeometry.dispose();
+    trackMarkMaterial.dispose();
+    trackMarkTexture.dispose();
+    scene.remove(trackMarkMesh);
     aimRingGeometry.dispose();
     aimInnerRingGeometry.dispose();
     aimDotGeometry.dispose();

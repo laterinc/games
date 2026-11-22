@@ -263,7 +263,7 @@ export interface RecordsMessage {
   records: MatchRecord[];
 }
 
-export type TankEventKind = 'hit' | 'kill' | 'respawn' | 'match_end';
+export type TankEventKind = 'hit' | 'kill' | 'respawn' | 'match_end' | 'impact';
 
 export interface TankEvent {
   kind: TankEventKind;
@@ -275,6 +275,8 @@ export interface TankEvent {
   damage?: number;
   winnerId?: string | null;
   reason?: string;
+  /** 命中表面类型：wall / obstacle（仅 impact 事件）。 */
+  surface?: string;
 }
 
 export interface TankEventMessage {
