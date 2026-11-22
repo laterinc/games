@@ -205,7 +205,9 @@ export default function App() {
             onCreateRoom={(options) =>
               actions.createRoom({ name: nickname, gameType, ...options })
             }
-            onAiGame={(color) => actions.createAiRoom(nickname, gameType, color)}
+            onAiGame={(color, boardSize) =>
+              actions.createAiRoom(nickname, gameType, color, boardSize)
+            }
             records={state.records}
             onJoinRoom={(roomId) => actions.joinRoom(roomId, nickname)}
             onWatchRoom={(roomId) => actions.watchRoom(roomId, nickname)}

@@ -9,6 +9,8 @@ from typing import Any
 PROTOCOL_VERSION = 2
 MAX_PLAYERS = 2
 BOARD_SIZE_DEFAULT = 15
+#: 五子棋允许的房间棋盘路数（奇数；越小节奏越快，适合手机）。
+GOMOKU_BOARD_SIZES: tuple[int, ...] = (9, 11, 13, 15, 17, 19)
 
 NAME_MAX_LENGTH = 16
 ROOM_NAME_MAX_LENGTH = 24
@@ -167,4 +169,14 @@ def validate_color(raw: str) -> str:
 def validate_mode(raw: str) -> str:
     if raw not in MODES:
         raise ProtocolError(ErrorCode.INVALID_MESSAGE, "mode 只能是 pvp 或 ai")
+    return raw
+
+
+def validate_board_size(raw: object) -> int:
+    """五子棋房间棋盘路数：只允许预设的奇数尺寸。"""
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        raise ProtocolError(ErrorCode.INVALID_MESSAGE, "boardSize 必须是整数")
+    if raw not in GOMOKU_BOARD_SIZES:
+        allowed = "、".join(str(size) for size in GOMOKU_BOARD_SIZES)
+        raise ProtocolError(ErrorCode.INVALID_MESSAGE, f"五子棋棋盘只能是 {allowed} 路")
     return raw

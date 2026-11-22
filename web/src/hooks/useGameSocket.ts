@@ -108,12 +108,18 @@ export interface GameActions {
     roomName: string;
     visibility: RoomVisibility;
     color: CreateColor;
+    boardSize?: number;
   }) => void;
   joinRoom: (roomId: string, name: string) => void;
   watchRoom: (roomId: string, name: string) => void;
   quickMatch: (name: string, gameType?: GameType) => void;
   refreshRooms: () => void;
-  createAiRoom: (name: string, gameType: GameType, color?: CreateColor) => void;
+  createAiRoom: (
+    name: string,
+    gameType: GameType,
+    color?: CreateColor,
+    boardSize?: number,
+  ) => void;
   ready: () => void;
   move: (input: MoveInput) => void;
   rematch: () => void;
@@ -277,6 +283,7 @@ export function useGameSocket(): UseGameSocketResult {
       roomName: string;
       visibility: RoomVisibility;
       color: CreateColor;
+      boardSize?: number;
     }): void => {
       const name = options.name.trim();
       if (!isValidNickname(name)) {
@@ -295,6 +302,9 @@ export function useGameSocket(): UseGameSocketResult {
         visibility: options.visibility,
         color: options.color,
       };
+      if (options.boardSize && options.gameType === 'gomoku') {
+        payload.boardSize = options.boardSize;
+      }
       if (roomName) payload.roomName = roomName;
       send(payload);
     };
@@ -333,6 +343,7 @@ export function useGameSocket(): UseGameSocketResult {
       name: string,
       gameType: GameType,
       color: CreateColor = gameType === 'chess' ? 'red' : 'black',
+      boardSize?: number,
     ): void => {
       const trimmedName = name.trim();
       if (!isValidNickname(trimmedName)) {
@@ -347,6 +358,7 @@ export function useGameSocket(): UseGameSocketResult {
         visibility: 'private',
         color,
         mode: 'ai',
+        ...(gameType === 'gomoku' && boardSize ? { boardSize } : {}),
       });
     };
 

@@ -99,7 +99,8 @@ class ChessRules(GameRules):
     # 生命周期
     # ------------------------------------------------------------------
 
-    def new_game(self) -> dict[str, Any]:
+    def new_game(self, *, board_size: int | None = None) -> dict[str, Any]:
+        del board_size  # 中国象棋固定 9×10，不支持自定义。
         state: dict[str, Any] = {
             "rows": ROWS,
             "cols": COLS,

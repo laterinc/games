@@ -28,8 +28,8 @@ class GameRules(ABC):
     ai_delay_seconds: float = 0.45
 
     @abstractmethod
-    def new_game(self) -> dict[str, Any]:
-        """返回一局新棋的初始状态。"""
+    def new_game(self, *, board_size: int | None = None) -> dict[str, Any]:
+        """返回一局新棋的初始状态；board_size 仅五子棋使用。"""
 
     @abstractmethod
     def apply_move(self, state: dict[str, Any], color: str, move: dict[str, Any]) -> None:

@@ -78,11 +78,13 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
   "roomName": "可空",
   "visibility": "public",
   "color": "red",
+  "boardSize": 15,
   "mode": "pvp"
 }
 ```
 
 - `gameType` 缺省 `"gomoku"`。
+- `boardSize`：仅五子棋支持，可选 `9/11/13/15/17/19` 路，缺省 `15`；象棋固定 9×10，传了会报 `INVALID_MESSAGE`。
 - `mode`：`"pvp"`（默认）或 `"ai"`（电脑对手，直接开局）。
 - 成功：所有连接收到 `room`；大厅在线者收到 `rooms`。
 - 错误：`INVALID_MESSAGE`（未知游戏/颜色不适用）、`ALREADY_IN_ROOM` 等。
@@ -96,7 +98,8 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
 ```
 
 - `join_room` 对已在同一房间的玩家**幂等**：重新下发 `room` 快照（刷新后误点加入不会报错）。
-- `quick_match` 只匹配同 `gameType` 的公开 waiting 房间；没有则新建公开房。
+- `quick_match` 只匹配同 `gameType` 的公开 waiting 房间；没有则新建 15 路公开房。自定义棋盘大小请用 `create_room`。
+- 公开房间列表的 `boardSize` 字段表示五子棋房间路数，加入后以房间实际棋盘为准。
 - `watch_room` 不占座位，最多 20 名观战者；观战者可聊天，收到完整 `room` 快照。
 
 ### 4.3 room 快照
@@ -135,6 +138,7 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
       "id": "ABC123",
       "name": "小明的棋局",
       "gameType": "gomoku",
+      "boardSize": 15,
       "status": "waiting",
       "playerCount": 1,
       "maxPlayers": 2,
@@ -145,7 +149,7 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
 }
 ```
 
-- 仅包含公开、waiting、pvp 房间。
+- 仅包含公开、waiting、pvp 房间；五子棋房间的 `boardSize` 为实际棋盘路数。
 - `GET /api/rooms?game=chess` 可按游戏过滤；不传返回全部。
 
 ### 4.5 ready / rematch / undo

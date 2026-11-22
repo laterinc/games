@@ -382,7 +382,11 @@ export function RoomView({
           </div>
 
           <div className="board-footer">
-            <span>{gameDef.boardFooter}</span>
+            <span>
+              {isChess
+                ? gameDef.boardFooter
+                : `${(game as GomokuGame).boardSize} 路 · ${gameDef.boardFooter}`}
+            </span>
             <span>{spectator ? '观战中 · 只读' : myColor ? `你执${COLOR_LABEL[myColor]}` : '未入座'}</span>
           </div>
         </div>

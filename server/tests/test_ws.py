@@ -382,6 +382,7 @@ def test_lobby_push_list_pull_and_rest() -> None:
                     "id": room["id"],
                     "name": "大厅测试",
                     "gameType": "gomoku",
+                    "boardSize": 15,
                     "status": "waiting",
                     "playerCount": 1,
                     "maxPlayers": 2,
@@ -981,3 +982,24 @@ def test_unknown_game_type_rejected_and_rooms_filtered_by_game() -> None:
             gomoku_rooms = client.get("/api/rooms", params={"game": "gomoku"}).json()["rooms"]
             assert [item["id"] for item in chess_rooms] == [chess["id"]]
             assert [item["id"] for item in gomoku_rooms] == [gomoku["id"]]
+
+
+def test_create_room_custom_board_size() -> None:
+    with TestClient(create_app()) as client:
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            room = _create_room(ws, boardSize=11)
+            assert room["game"]["boardSize"] == 11
+            assert len(room["game"]["board"]) == 11
+
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            ws.send_json({"type": "create_room", "name": "小明", "boardSize": 10})
+            _read_error(ws, "INVALID_MESSAGE")
+
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            ws.send_json(
+                {"type": "create_room", "name": "小明", "gameType": "chess", "boardSize": 9}
+            )
+            _read_error(ws, "INVALID_MESSAGE")

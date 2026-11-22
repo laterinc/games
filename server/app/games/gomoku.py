@@ -19,10 +19,11 @@ class GomokuRules(GameRules):
     def __init__(self, *, board_size: int = 15) -> None:
         self.board_size = board_size
 
-    def new_game(self) -> dict[str, Any]:
+    def new_game(self, *, board_size: int | None = None) -> dict[str, Any]:
+        size = board_size or self.board_size
         return {
-            "boardSize": self.board_size,
-            "board": game.empty_board(self.board_size),
+            "boardSize": size,
+            "board": game.empty_board(size),
             "currentTurn": self.colors[0],
             "lastMove": None,
             "moves": [],

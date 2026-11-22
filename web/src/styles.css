@@ -722,6 +722,10 @@ button {
   color: var(--text-dim);
 }
 
+.room-size {
+  color: var(--text-dim);
+}
+
 .room-join {
   min-width: 66px;
 }
@@ -810,6 +814,14 @@ button {
 
 .segmented-three {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.segmented-six {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.segmented-six .segmented-item {
+  padding: 9px 4px;
 }
 
 .segmented-item {
@@ -1854,6 +1866,10 @@ button {
 }
 
 @media (max-width: 640px) {
+  .segmented-six {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .header-back {
     padding: 8px 10px;
   }

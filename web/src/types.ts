@@ -134,6 +134,8 @@ export interface RoomSummary {
   id: string;
   name: string;
   gameType: GameType;
+  /** 五子棋棋盘路数；象棋固定 9×10。 */
+  boardSize?: number;
   status: RoomStatus;
   playerCount: number;
   maxPlayers: number;
@@ -241,6 +243,8 @@ export interface CreateRoomPayload {
   roomName?: string;
   visibility?: RoomVisibility;
   color?: CreateColor;
+  /** 仅五子棋：棋盘路数（9/11/13/15/17/19）。 */
+  boardSize?: number;
   mode?: 'pvp' | 'ai';
 }
 

@@ -25,6 +25,7 @@ from .protocol import (
     require_int,
     require_str,
     optional_str,
+    validate_board_size,
     validate_chat_text,
     validate_color,
     validate_mode,
@@ -264,6 +265,8 @@ class MessageDispatcher:
         color = validate_color(optional_str(payload, "color", "black") or "black")
         mode = validate_mode(optional_str(payload, "mode", "pvp") or "pvp")
         game_type = optional_str(payload, "gameType", "gomoku") or "gomoku"
+        raw_board_size = payload.get("boardSize")
+        board_size = validate_board_size(raw_board_size) if raw_board_size is not None else None
         await self._manager.create_room(
             connection.player_id,
             name=name,
@@ -272,6 +275,7 @@ class MessageDispatcher:
             color=color,
             mode=mode,
             game_type=game_type,
+            board_size=board_size,
         )
 
     async def _handle_join_room(self, connection: ClientConnection, payload: dict[str, Any]) -> None:

@@ -14,7 +14,7 @@ import secrets
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from .protocol import ErrorCode, ProtocolError, now_ms
+from .protocol import GOMOKU_BOARD_SIZES, ErrorCode, ProtocolError, now_ms
 from .games import GameRules, build_registry
 
 logger = logging.getLogger(__name__)
@@ -289,6 +289,7 @@ class RoomManager:
         color: str,
         mode: str = "pvp",
         game_type: str = "gomoku",
+        board_size: int | None = None,
     ) -> Room:
         async with self._lock:
             self._ensure_not_in_room(player_id)
@@ -299,6 +300,7 @@ class RoomManager:
                 visibility=visibility,
                 color=color,
                 game_type=game_type,
+                board_size=board_size,
             )
             if mode == "ai":
                 self._start_ai_locked(room)
@@ -318,10 +320,16 @@ class RoomManager:
         visibility: str,
         color: str,
         game_type: str,
+        board_size: int | None = None,
         room_id: str | None = None,
         created_at: int | None = None,
     ) -> Room:
         rules = self.rules(game_type)
+        if board_size is not None:
+            if game_type != "gomoku":
+                raise ProtocolError(ErrorCode.INVALID_MESSAGE, "只有五子棋支持设置棋盘大小")
+            if board_size not in GOMOKU_BOARD_SIZES:
+                raise ProtocolError(ErrorCode.INVALID_MESSAGE, "棋盘大小不在允许范围内")
         player = self._require_player(player_id)
         player.name = name
         player.ready = False
@@ -343,7 +351,7 @@ class RoomManager:
             created_at=created,
             updated_at=created,
             color_order=rules.colors,
-            state=rules.new_game(),
+            state=rules.new_game(board_size=board_size),
             players=[player],
         )
         self._rooms[room.id] = room
@@ -716,7 +724,7 @@ class RoomManager:
     def _start_game_locked(self, room: Room) -> None:
         rules = self.rules(room.game_type)
         now = now_ms()
-        room.state = rules.new_game()
+        room.state = rules.new_game(board_size=room.board_size or None)
         room.state["startedAt"] = now
         room.status = "playing"
         room.rematch_votes = []
@@ -892,7 +900,7 @@ class RoomManager:
         host.color = room.color_order[0]
         host.ready = False
         room.status = "waiting"
-        room.state = rules.new_game()
+        room.state = rules.new_game(board_size=room.board_size or None)
         room.pending_undo = None
         room.rematch_votes = []
         room.updated_at = now
@@ -967,6 +975,7 @@ class RoomManager:
             "id": room.id,
             "name": room.name,
             "gameType": room.game_type,
+            "boardSize": room.board_size,
             "status": room.status,
             "playerCount": len(room.players),
             "maxPlayers": 2,

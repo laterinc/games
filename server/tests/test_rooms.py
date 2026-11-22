@@ -201,6 +201,7 @@ def test_room_list_only_public_waiting_sorted() -> None:
             "id",
             "name",
             "gameType",
+            "boardSize",
             "status",
             "playerCount",
             "maxPlayers",
@@ -221,6 +222,7 @@ def test_room_list_only_public_waiting_sorted() -> None:
                 "id": room_a.id,
                 "name": "第一局",
                 "gameType": "gomoku",
+                "boardSize": 15,
                 "status": "waiting",
                 "playerCount": 2,
                 "maxPlayers": 2,
@@ -752,5 +754,83 @@ def test_player_identity_and_auth() -> None:
         assert manager.authenticate(player.id, player.token) is player
         assert manager.authenticate(player.id, "wrong") is None
         assert manager.authenticate("p_missing", player.token) is None
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# 房间棋盘大小
+# ---------------------------------------------------------------------------
+
+
+def test_create_room_with_custom_gomoku_board_size() -> None:
+    async def scenario() -> None:
+        hub, manager = await _setup()
+        (a,) = await _new_players(manager, hub, "小明")
+        room = await manager.create_room(
+            a.id,
+            name="小明",
+            room_name="小棋盘",
+            visibility="public",
+            color="black",
+            board_size=9,
+        )
+        assert room.board_size == 9
+        snapshot = manager.room_snapshot_for(a.id)
+        assert snapshot is not None
+        assert snapshot["game"]["boardSize"] == 9
+        assert len(snapshot["game"]["board"]) == 9
+        assert all(len(row) == 9 for row in snapshot["game"]["board"])
+        assert manager.rooms_snapshot()[0]["boardSize"] == 9
+        hub.messages.clear()
+
+    asyncio.run(scenario())
+
+
+def test_custom_board_size_survives_game_start() -> None:
+    async def scenario() -> None:
+        hub, manager = await _setup()
+        a, b = await _new_players(manager, hub, "小明", "小红")
+        room = await manager.create_room(
+            a.id,
+            name="小明",
+            room_name="",
+            visibility="public",
+            color="black",
+            board_size=11,
+        )
+        await manager.join_room(b.id, room_id=room.id, name="小红")
+        await manager.ready(a.id)
+        await manager.ready(b.id)
+        state = manager.room_of(a.id).state
+        assert state["boardSize"] == 11
+        assert len(state["board"]) == 11
+
+    asyncio.run(scenario())
+
+
+def test_invalid_or_chess_board_size_rejected() -> None:
+    async def scenario() -> None:
+        hub, manager = await _setup()
+        a, b = await _new_players(manager, hub, "小明", "小红")
+        with pytest.raises(ProtocolError):
+            await manager.create_room(
+                a.id,
+                name="小明",
+                room_name="",
+                visibility="public",
+                color="black",
+                board_size=10,
+            )
+        with pytest.raises(ProtocolError):
+            await manager.create_room(
+                b.id,
+                name="小红",
+                room_name="",
+                visibility="public",
+                color="red",
+                game_type="chess",
+                board_size=9,
+            )
 
     asyncio.run(scenario())

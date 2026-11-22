@@ -352,6 +352,7 @@ export function normalizeRoomSummary(value: unknown): RoomSummary | null {
     id,
     name: asString(value.name, `房间 ${id}`),
     gameType: asGameType(value.gameType),
+    boardSize: asNumber(value.boardSize, DEFAULT_BOARD_SIZE),
     status: asRoomStatus(value.status),
     playerCount: asNumber(value.playerCount, 0),
     maxPlayers: asNumber(value.maxPlayers, MAX_PLAYERS),

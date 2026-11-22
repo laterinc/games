@@ -28,13 +28,45 @@ interface LobbyProps {
     roomName: string;
     visibility: RoomVisibility;
     color: CreateColor;
+    boardSize?: number;
   }) => void;
-  onAiGame: (color: CreateColor) => void;
+  onAiGame: (color: CreateColor, boardSize?: number) => void;
   records: MatchRecord[];
   onJoinRoom: (roomId: string) => void;
   onWatchRoom: (roomId: string) => void;
   onRefreshRooms: () => void;
   notify: (text: string, level?: ToastLevel) => void;
+}
+
+const BOARD_SIZE_OPTIONS = [9, 11, 13, 15, 17, 19] as const;
+const DEFAULT_GOMOKU_SIZE = 15;
+
+function BoardSizeField({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (size: number) => void;
+}) {
+  return (
+    <div className="field">
+      <span className="field-label">棋盘大小</span>
+      <div className="segmented segmented-six" role="group" aria-label="棋盘大小">
+        {BOARD_SIZE_OPTIONS.map((size) => (
+          <button
+            key={size}
+            type="button"
+            className={`segmented-item${value === size ? ' is-active' : ''}`}
+            aria-pressed={value === size}
+            onClick={() => onChange(size)}
+          >
+            <span className="segmented-label">{size} 路</span>
+          </button>
+        ))}
+      </div>
+      <span className="field-hint">路数越少棋盘越小、节奏越快；标准 15 路。</span>
+    </div>
+  );
 }
 
 const RECORD_RESULT_LABEL = { win: '胜', loss: '负', draw: '和' } as const;
@@ -146,6 +178,7 @@ export function Lobby({
   const [color, setColor] = useState<CreateColor>(gameType === 'chess' ? 'red' : 'black');
   const [joinCode, setJoinCode] = useState(initialRoomCode);
   const [joinError, setJoinError] = useState('');
+  const [boardSize, setBoardSize] = useState<number>(DEFAULT_GOMOKU_SIZE);
 
   useEffect(() => {
     if (initialRoomCode) setJoinCode(initialRoomCode);
@@ -155,6 +188,7 @@ export function Lobby({
     const defaultColor: CreateColor = gameType === 'chess' ? 'red' : 'black';
     setColor(defaultColor);
     setAiColor(defaultColor);
+    setBoardSize(DEFAULT_GOMOKU_SIZE);
   }, [gameType]);
 
   const trimmedNickname = nickname.trim();
@@ -182,13 +216,18 @@ export function Lobby({
       notify(`房间名最多 ${MAX_ROOM_NAME_LENGTH} 个字符`, 'error');
       return;
     }
-    onCreateRoom({ roomName: roomName.trim(), visibility, color });
+    onCreateRoom({
+      roomName: roomName.trim(),
+      visibility,
+      color,
+      boardSize: gameType === 'gomoku' ? boardSize : undefined,
+    });
     setCreateOpen(false);
   };
 
   const handleAiStart = (): void => {
     if (!canStart) return;
-    onAiGame(aiColor);
+    onAiGame(aiColor, gameType === 'gomoku' ? boardSize : undefined);
     setAiOpen(false);
   };
 
@@ -388,6 +427,9 @@ export function Lobby({
                       <span className="room-count">
                         {room.playerCount}/{room.maxPlayers}
                       </span>
+                      {room.gameType === 'gomoku' ? (
+                        <span className="room-size">{room.boardSize ?? DEFAULT_GOMOKU_SIZE} 路</span>
+                      ) : null}
                     </div>
                     <button
                       type="button"
@@ -633,6 +675,10 @@ export function Lobby({
             ))}
           </div>
         </div>
+
+        {gameType === 'gomoku' ? (
+          <BoardSizeField value={boardSize} onChange={setBoardSize} />
+        ) : null}
       </Modal>
 
       <Modal
@@ -670,6 +716,10 @@ export function Lobby({
             ))}
           </div>
         </div>
+
+        {gameType === 'gomoku' ? (
+          <BoardSizeField value={boardSize} onChange={setBoardSize} />
+        ) : null}
       </Modal>
     </section>
   );
