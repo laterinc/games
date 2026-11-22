@@ -236,7 +236,12 @@ export function TankRoom({
   const mapSignature = useMemo(() => {
     const map = game.map;
     if (!map) return '';
-    return `${map.width}x${map.height}:${map.obstacles.length}:${map.spawns.length}`;
+    // 掩体坐标也要参与签名：再来一局可能换布局但数量不变，否则场景不会重建。
+    const obstacles = map.obstacles
+      .map((rect) => `${rect.x},${rect.y},${rect.w},${rect.h}`)
+      .join(';');
+    const spawns = map.spawns.map((spawn) => `${spawn.x},${spawn.y}`).join(';');
+    return `${map.width}x${map.height}:${obstacles}:${spawns}`;
   }, [game.map]);
 
   /* ------------------------------ 准星位置 ------------------------------ */

@@ -108,7 +108,7 @@ def test_tank_room_starts_streams_and_moves() -> None:
                 assert playing["game"]["targetKills"] == 15
                 assert playing["game"]["endsAt"] is not None
                 tank_map = playing["game"]["map"]
-                assert tank_map["width"] == 48 and tank_map["height"] == 48
+                assert tank_map["width"] == 96 and tank_map["height"] == 96
                 assert tank_map["obstacles"], "地图应当有掩体"
                 assert len(tank_map["spawns"]) == 8
 

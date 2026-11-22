@@ -39,7 +39,7 @@ export interface TankMap {
   theme?: string;
 }
 
-export const DEFAULT_MAP: TankMap = { width: 48, height: 48, obstacles: [], spawns: [] };
+export const DEFAULT_MAP: TankMap = { width: 96, height: 96, obstacles: [], spawns: [] };
 
 /** 一个「地图单位」对应的地坪贴图像素：8 个世界单位铺一张 512px 的重复贴图。 */
 const FLOOR_TEXTURE_UNITS = 8;
@@ -1868,9 +1868,16 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
       }
     }
 
-    // 2) 场内靠墙的 2–3 棵树：树干细、树冠高，坦克从下方穿过也不显眼
+    // 2) 场内靠墙的几棵树：树干细、树冠高，坦克从下方穿过也不显眼。
+    //    树的数量随场地面积增长（96×96 时 6 棵）。
+    const areaScale = (currentWidth * currentHeight) / (48 * 48);
+    const interiorTreeTarget = Math.min(8, Math.max(3, Math.round(3 * Math.sqrt(areaScale))));
     const interiorPoints: Array<{ x: number; z: number }> = [];
-    for (let attempt = 0; attempt < 90 && interiorPoints.length < 3; attempt += 1) {
+    for (
+      let attempt = 0;
+      attempt < 90 * interiorTreeTarget && interiorPoints.length < interiorTreeTarget;
+      attempt += 1
+    ) {
       const side = Math.floor(hash2(attempt * 1.9 + 0.7, 3.1) * 4) % 4;
       const alongX = side % 2 === 0;
       const along = 7 + hash2(attempt * 2.7, 4.3) * ((alongX ? currentWidth : currentHeight) - 14);
@@ -1904,6 +1911,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
     }
 
     // 3) 场内低矮装饰：草丛 / 落叶 / 碎石 / 小灌木（不参与碰撞，坦克可直接碾过）
+    //    数量随场地面积等比放大，避免大地图显得空旷。
     const scatter = (
       count: number,
       salt: number,
@@ -1924,7 +1932,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
       }
     };
 
-    scatter(130, 3.7, 1.6, (x, z, index) => {
+    scatter(Math.round(130 * areaScale), 3.7, 1.6, (x, z, index) => {
       const height = 0.22 + hash2(x * 3.1, z * 2.7) * 0.3;
       const spread = 0.07 + hash2(z, x) * 0.09;
       const color = new THREE.Color()
@@ -1936,7 +1944,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
       });
     });
 
-    scatter(90, 8.3, 1.2, (x, z, index) => {
+    scatter(Math.round(90 * areaScale), 8.3, 1.2, (x, z, index) => {
       const scale = 0.055 + hash2(z * 1.7, x * 2.1) * 0.09;
       const warm = new THREE.Color(
         index % 3 === 0 ? 0x4f3720 : index % 3 === 1 ? 0x5c4424 : 0x3c4a28,
@@ -1947,14 +1955,14 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
       });
     });
 
-    scatter(26, 11.9, 1.4, (x, z) => {
+    scatter(Math.round(26 * areaScale), 11.9, 1.4, (x, z) => {
       const scale = 0.08 + hash2(x * 1.3, z * 0.7) * 0.15;
       rocks.push({
         matrix: instanceMatrix(x, scale * 0.35, z, scale * 1.4, scale * 0.7, scale, hash2(x, z) * Math.PI),
       });
     });
 
-    scatter(16, 15.1, 2.0, (x, z, index) => {
+    scatter(Math.round(16 * areaScale), 15.1, 2.0, (x, z, index) => {
       const scale = 0.35 + hash2(x * 0.9, z * 1.9) * 0.35;
       const color = new THREE.Color()
         .copy(foliageColors[(index + 2) % foliageColors.length] ?? foliageColors[0])
@@ -1967,7 +1975,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
 
     // 斑驳苔草/草皮色块：贴地的低对比绿色块，参考图里泥土与草的交界
     const patches: InstanceSpec[] = [];
-    scatter(64, 21.7, 2.2, (x, z, index) => {
+    scatter(Math.round(64 * areaScale), 21.7, 2.2, (x, z, index) => {
       const scale = 0.16 + hash2(x * 1.7, z * 0.9) * 0.34;
       const color = new THREE.Color(
         index % 3 === 0 ? 0x3c4a2f : index % 3 === 1 ? 0x44502f : 0x33402a,
@@ -2085,11 +2093,13 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
       const distanceRight = obstacle.x + obstacle.width - x;
       const distanceFront = z - obstacle.y;
       const distanceBack = obstacle.y + obstacle.depth - z;
+      // 坦克炮弹水平飞行，弹痕放在炮口高度附近，而不是掩体高度的 55%（会显得浮在半空）。
+      const impactY = Math.min(obstacle.height * 0.72, 0.95);
       const candidates: Array<[number, THREE.Vector3, THREE.Vector3]> = [
-        [distanceLeft, new THREE.Vector3(obstacle.x, obstacle.height * 0.55, z), new THREE.Vector3(-1, 0, 0)],
-        [distanceRight, new THREE.Vector3(obstacle.x + obstacle.width, obstacle.height * 0.55, z), new THREE.Vector3(1, 0, 0)],
-        [distanceFront, new THREE.Vector3(x, obstacle.height * 0.55, obstacle.y), new THREE.Vector3(0, 0, -1)],
-        [distanceBack, new THREE.Vector3(x, obstacle.height * 0.55, obstacle.y + obstacle.depth), new THREE.Vector3(0, 0, 1)],
+        [distanceLeft, new THREE.Vector3(obstacle.x, impactY, z), new THREE.Vector3(-1, 0, 0)],
+        [distanceRight, new THREE.Vector3(obstacle.x + obstacle.width, impactY, z), new THREE.Vector3(1, 0, 0)],
+        [distanceFront, new THREE.Vector3(x, impactY, obstacle.y), new THREE.Vector3(0, 0, -1)],
+        [distanceBack, new THREE.Vector3(x, impactY, obstacle.y + obstacle.depth), new THREE.Vector3(0, 0, 1)],
       ];
       for (const [distance, point, normal] of candidates) {
         if (distance < bestDistance) {
@@ -2105,7 +2115,7 @@ export function createEnvironment(scene: THREE.Scene, renderer: THREE.WebGLRende
     if (x < wallMargin || x > currentWidth - wallMargin || z < wallMargin || z > currentHeight - wallMargin) {
       const point = new THREE.Vector3(
         THREE.MathUtils.clamp(x, 0, currentWidth),
-        1.0,
+        0.9,
         THREE.MathUtils.clamp(z, 0, currentHeight),
       );
       const normal = new THREE.Vector3(0, 0, 0);

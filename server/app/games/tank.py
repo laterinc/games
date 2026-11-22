@@ -24,7 +24,7 @@ from typing import Any, Final, Sequence
 # ----------------------------------------------------------------------
 
 TICK_RATE: Final = 20
-WORLD_SIZE: Final = 48.0
+WORLD_SIZE: Final = 96.0
 
 TANK_RADIUS: Final = 0.9
 BULLET_RADIUS: Final = 0.18
@@ -78,14 +78,14 @@ _BULLET_SUBSTEP: Final = 0.35
 #: 浮点计时容差（3.0 - 60 * 0.05 不严格等于 0）
 _EPS: Final = 1e-9
 
-#: 地图生成参数
-MIN_OBSTACLES: Final = 10
-MAX_OBSTACLES: Final = 16
+#: 地图生成参数（96×96 地图，掩体数量随面积等比放大）
+MIN_OBSTACLES: Final = 40
+MAX_OBSTACLES: Final = 64
 OBSTACLE_MIN_SIZE: Final = 2.0
 OBSTACLE_MAX_SIZE: Final = 6.0
 OBSTACLE_WALL_MARGIN: Final = 1.5
 OBSTACLE_MIN_GAP: Final = 1.0
-SPAWN_RING_RADIUS: Final = 15.0
+SPAWN_RING_RADIUS: Final = 30.0
 SPAWN_MIN_DISTANCE: Final = 8.0
 SPAWN_WALL_CLEARANCE: Final = 3.0
 SPAWN_OBSTACLE_CLEARANCE: Final = 2.0
@@ -270,7 +270,7 @@ def _spawn_is_clear(rect: Obstacle, spawns: Sequence[tuple[float, float]]) -> bo
 def _generate_obstacles(
     seed: int | None, spawns: Sequence[tuple[float, float]]
 ) -> list[Obstacle]:
-    """按 seed 生成 10–16 个矩形掩体，且都避开出生点（距离 ≥ 2）。"""
+    """按 seed 生成 40–64 个矩形掩体，且都避开出生点（距离 ≥ 2）。"""
 
     rng = random.Random(seed)
     count = rng.randint(MIN_OBSTACLES, MAX_OBSTACLES)

@@ -368,7 +368,7 @@ export function createTankScene(
   const scene = new THREE.Scene();
   scene.background = DUSK.fog.clone();
   // 指数大气雾：黄昏冷调，远处森林与竞技场边缘自然融合
-  scene.fog = new THREE.FogExp2(DUSK.fog.clone(), 0.0078);
+  scene.fog = new THREE.FogExp2(DUSK.fog.clone(), 0.0054);
 
   const camera = new THREE.PerspectiveCamera(52, 1, 0.1, 320);
   camera.position.set(24, 15, 40);
@@ -384,7 +384,7 @@ export function createTankScene(
   const post: PostPipeline = createPostPipeline(renderer, scene, camera);
 
   /* -------------------------------- 状态 -------------------------------- */
-  let map: TankMap = { width: 48, height: 48, obstacles: [], spawns: [] };
+  let map: TankMap = { width: 96, height: 96, obstacles: [], spawns: [] };
   let mode: TankCameraMode = options.cameraMode ?? 'iso';
   const chaseDistance = options.chaseDistance ?? 14;
   const isoDistance = options.isoDistance ?? 24;
@@ -1453,7 +1453,8 @@ export function createTankScene(
   function setMap(next: TankMap): void {
     map = next;
     environment.setMap(next);
-    fx.setMapBounds(next.width || 48, next.height || 48);
+    fx.setMapBounds(next.width || 96, next.height || 96);
+    fx.clearDecals();
     // 换图视为新一局：回收旧实体，避免残留位置
     for (const tracked of tanks.values()) tracked.model.setVisible(false);
     for (const tracked of bullets.values()) tracked.model.setVisible(false);

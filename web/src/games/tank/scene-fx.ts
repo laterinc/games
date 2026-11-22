@@ -25,6 +25,8 @@ export interface FxSystem {
   setScreenScale(scale: number): void;
   /** 地图尺寸变化时重建漂浮尘埃的分布范围。 */
   setMapBounds(width: number, height: number): void;
+  /** 新一局开始时清空上一局的弹痕/焦痕。 */
+  clearDecals(): void;
   muzzle(worldX: number, worldY: number, angle: number): void;
   hit(worldX: number, worldY: number): void;
   /** 子弹命中掩体/边界墙：按表面材质给砖屑/金属火花/沙粒 + 贴合表面的弹坑/烧蚀贴花。 */
@@ -512,7 +514,7 @@ export function createFx(scene: THREE.Scene): FxSystem {
     dustPhaseAttribute.needsUpdate = true;
     dustSizeAttribute.needsUpdate = true;
   }
-  scatterDust(48, 48);
+  scatterDust(96, 96);
 
   /* ------------------------------ 池化网格 ------------------------------ */
   const flashGeometry = new THREE.ConeGeometry(0.5, 1.5, 8);
@@ -574,7 +576,7 @@ export function createFx(scene: THREE.Scene): FxSystem {
 
   /* -------------------------------- 闪光灯 -------------------------------- */
   /* ------------------------------ 贴花池 ------------------------------ */
-  const DECAL_CAPACITY = 24;
+  const DECAL_CAPACITY = 256;
   const decalAtlas = makeDecalAtlasTexture();
   const decalGeometry = new THREE.PlaneGeometry(1, 1);
   const decalAlphaAttribute = new THREE.InstancedBufferAttribute(
@@ -989,7 +991,7 @@ export function createFx(scene: THREE.Scene): FxSystem {
         [0.32, 0.3, 0.26],
         [0.45, 0.38, 0.3],
       ]);
-      spawnDecal(point, normal, 2, 1.1, 9);
+      spawnDecal(point, normal, 2, 1.5, 300);
     } else if (kind === 'brick') {
       // 砖屑 + 灰尘 + 弹坑
       for (let index = 0; index < 20; index += 1) {
@@ -1033,7 +1035,7 @@ export function createFx(scene: THREE.Scene): FxSystem {
         [0.5, 0.3, 0.2],
         [0.32, 0.28, 0.24],
       ]);
-      spawnDecal(point, normal, 1, 1.25, 9.5);
+      spawnDecal(point, normal, 1, 1.6, 300);
     } else if (kind === 'sandbag') {
       // 沙粒飞散
       for (let index = 0; index < 22; index += 1) {
@@ -1072,7 +1074,7 @@ export function createFx(scene: THREE.Scene): FxSystem {
           alpha: 0.3,
         });
       }
-      spawnDecal(point, normal, 3, 0.95, 9);
+      spawnDecal(point, normal, 3, 0.8, 240);
     } else if (kind === 'concrete') {
       // 混凝土碎屑 + 灰尘
       for (let index = 0; index < 16; index += 1) {
@@ -1111,7 +1113,7 @@ export function createFx(scene: THREE.Scene): FxSystem {
           alpha: 0.3,
         });
       }
-      spawnDecal(point, normal, 1, 1.0, 9);
+      spawnDecal(point, normal, 1, 1.35, 300);
     } else {
       // 地面：尘土 + 小焦痕
       for (let index = 0; index < 5; index += 1) {
@@ -1131,7 +1133,7 @@ export function createFx(scene: THREE.Scene): FxSystem {
           alpha: 0.3,
         });
       }
-      spawnDecal(point, normal, 0, 0.9, 8);
+      spawnDecal(point, normal, 0, 1.1, 60);
     }
 
     // 瞬间亮光内的一小簇火花（所有表面通用）
@@ -1363,10 +1365,22 @@ export function createFx(scene: THREE.Scene): FxSystem {
     texture.dispose();
   }
 
+  function clearDecals(): void {
+    for (let slot = 0; slot < DECAL_CAPACITY; slot += 1) {
+      decalAge[slot] = decalLife[slot] + 1;
+      decalAlphaAttribute.array[slot] = 0;
+      decalMesh.setMatrixAt(slot, decalMatrix.makeScale(0, 0, 0));
+    }
+    decalAlphaAttribute.needsUpdate = true;
+    decalMesh.instanceMatrix.needsUpdate = true;
+    decalCursor = 0;
+  }
+
   return {
     update,
     setScreenScale,
     setMapBounds: scatterDust,
+    clearDecals,
     muzzle,
     hit,
     impact,

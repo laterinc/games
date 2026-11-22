@@ -343,8 +343,8 @@ function asTankSpawns(value: unknown): Array<{ x: number; y: number }> {
 
 function asTankMap(value: unknown): TankMap | null {
   if (!isRecord(value)) return null;
-  const width = asNumber(value.width, 48);
-  const height = asNumber(value.height, 48);
+  const width = asNumber(value.width, 96);
+  const height = asNumber(value.height, 96);
   if (width <= 0 || height <= 0) return null;
   return {
     width,

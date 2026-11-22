@@ -128,7 +128,7 @@ def test_info_and_initial_state() -> None:
         "b": {"kills": 0, "deaths": 0},
     }
     game_map = info["map"]
-    assert game_map["width"] == tank.WORLD_SIZE == 48.0
+    assert game_map["width"] == tank.WORLD_SIZE == 96.0
     assert game_map["height"] == tank.WORLD_SIZE
     assert game_map["theme"] == "warehouse"
     assert len(game_map["spawns"]) == 8
@@ -196,15 +196,15 @@ def test_forward_movement_and_hull() -> None:
     assert start is not None
     # slot 0 出生在地图上方，初始车体朝向地图中心（+y，π/2）
     assert start.hull == pytest.approx(math.pi / 2.0)
-    assert start.x == pytest.approx(24.0)
-    assert start.y == pytest.approx(9.0)
+    assert start.x == pytest.approx(48.0)
+    assert start.y == pytest.approx(18.0)
 
     world.apply_input("a", flags=tank.INPUT_UP, aim=0)
     step(world, 20)  # 1 秒
     moved = tank_entity(world, "a")
     assert moved is not None
-    assert moved.x == pytest.approx(24.0, abs=1e-9)
-    assert moved.y == pytest.approx(15.0, abs=1e-9)
+    assert moved.x == pytest.approx(48.0, abs=1e-9)
+    assert moved.y == pytest.approx(24.0, abs=1e-9)
     assert moved.vx == pytest.approx(0.0, abs=1e-9)
     assert moved.vy == pytest.approx(tank.MOVE_SPEED, abs=1e-9)
 
@@ -271,7 +271,7 @@ def test_reverse_and_brake() -> None:
 def test_world_boundary_clamp() -> None:
     world = make_world([("a", "A")], seed=3)
     clear_obstacles(world)
-    place(world, "a", 47.0, 24.0, hull=0.0)
+    place(world, "a", tank.WORLD_SIZE - 1.0, tank.WORLD_SIZE / 2, hull=0.0)
     world.apply_input("a", flags=tank.INPUT_UP, aim=0)
     step(world, 100)
     entity = tank_entity(world, "a")
