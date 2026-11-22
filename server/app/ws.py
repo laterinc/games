@@ -33,6 +33,7 @@ from .protocol import (
     validate_room_name,
     validate_visibility,
 )
+from .games.tank import TICK_RATE as TANK_TICK_RATE
 from .rooms import Player, RoomManager
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,16 @@ class ClientConnection:
                 return True
             except Exception:  # noqa: BLE001 - 连接已断，忽略
                 logger.debug("发送消息失败（连接可能已断开）", exc_info=True)
+                return False
+
+    async def send_bytes(self, data: bytes) -> bool:
+        """发送二进制帧（实时对局快照）；与文本共用发送锁，保证帧不乱序。"""
+        async with self._send_lock:
+            try:
+                await self.ws.send_bytes(data)
+                return True
+            except Exception:  # noqa: BLE001 - 连接已断，忽略
+                logger.debug("发送二进制帧失败（连接可能已断开）", exc_info=True)
                 return False
 
     def allow_message(self) -> bool:
@@ -117,6 +128,10 @@ class ConnectionHub:
         for connection in list(self._connections.get(player_id, ())):
             await connection.send(message)
 
+    async def send_bytes_to_player(self, player_id: str, data: bytes) -> None:
+        for connection in list(self._connections.get(player_id, ())):
+            await connection.send_bytes(data)
+
     def online_player_ids(self) -> list[str]:
         return list(self._connections.keys())
 
@@ -155,6 +170,9 @@ def _welcome_message(player: Player, *, reconnected: bool) -> dict[str, Any]:
         "reconnected": reconnected,
         "serverTime": now_ms(),
         "protocolVersion": PROTOCOL_VERSION,
+        # 实时游戏能力协商：二进制输入/快照 + tick 频率（老客户端忽略即可）。
+        "binary": True,
+        "tickRate": TANK_TICK_RATE,
     }
 
 
@@ -267,6 +285,20 @@ class MessageDispatcher:
         game_type = optional_str(payload, "gameType", "gomoku") or "gomoku"
         raw_board_size = payload.get("boardSize")
         board_size = validate_board_size(raw_board_size) if raw_board_size is not None else None
+        raw_bot_difficulty = payload.get("botDifficulty")
+        bot_difficulty: str | None = None
+        if raw_bot_difficulty is not None:
+            if raw_bot_difficulty not in ("easy", "normal", "hard"):
+                raise ProtocolError(ErrorCode.INVALID_MESSAGE, "botDifficulty 只能是 easy/normal/hard")
+            bot_difficulty = str(raw_bot_difficulty)
+        raw_bot_count = payload.get("botCount")
+        bot_count: int | None = None
+        if raw_bot_count is not None:
+            if isinstance(raw_bot_count, bool) or not isinstance(raw_bot_count, int):
+                raise ProtocolError(ErrorCode.INVALID_MESSAGE, "botCount 必须是整数")
+            if not 1 <= raw_bot_count <= 7:
+                raise ProtocolError(ErrorCode.INVALID_MESSAGE, "botCount 只能是 1–7")
+            bot_count = raw_bot_count
         await self._manager.create_room(
             connection.player_id,
             name=name,
@@ -276,6 +308,8 @@ class MessageDispatcher:
             mode=mode,
             game_type=game_type,
             board_size=board_size,
+            bot_count=bot_count,
+            bot_difficulty=bot_difficulty,
         )
 
     async def _handle_join_room(self, connection: ClientConnection, payload: dict[str, Any]) -> None:
@@ -340,8 +374,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         dispatcher = MessageDispatcher(manager, hub)
         while True:
             try:
-                raw = await asyncio.wait_for(
-                    websocket.receive_text(), timeout=IDLE_TIMEOUT_SECONDS
+                message = await asyncio.wait_for(
+                    websocket.receive(), timeout=IDLE_TIMEOUT_SECONDS
                 )
             except asyncio.TimeoutError:
                 logger.info("连接 %s 超过 30s 无消息，主动断开", connection.player_id)
@@ -350,6 +384,19 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 except Exception:  # noqa: BLE001
                     pass
                 break
+            if message.get("type") == "websocket.disconnect":
+                break
+            data = message.get("bytes")
+            if data is not None:
+                # 二进制帧只用于实时对局输入；非实时房间直接拒绝，避免无意义流量。
+                if not manager.submit_binary(connection.player_id, data):
+                    await _send_error(
+                        connection, ErrorCode.INVALID_MESSAGE, "当前没有进行中的实时对局"
+                    )
+                continue
+            raw = message.get("text")
+            if raw is None:
+                continue
             if not connection.allow_message():
                 await _send_error(connection, ErrorCode.RATE_LIMITED)
                 continue

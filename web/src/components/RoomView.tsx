@@ -40,6 +40,9 @@ interface RoomViewProps {
   notify: (text: string, level?: ToastLevel) => void;
 }
 
+/** 回合制棋类对局视图：实时游戏（坦克大战）有独立页面，不走这里。 */
+type BoardGame = GomokuGame | ChessGame;
+
 interface ResultInfo {
   title: string;
   detail: string;
@@ -48,7 +51,7 @@ interface ResultInfo {
 
 function describeResult(room: Room): ResultInfo | null {
   if (room.status !== 'finished') return null;
-  const { winner, endedReason } = room.game;
+  const { winner, endedReason } = room.game as BoardGame;
   const isChess = room.gameType === 'chess';
   if (endedReason === 'forfeit') {
     return {
@@ -144,7 +147,7 @@ export function RoomView({
   const seatOne = players.find((player) => player.color === seatColors[0]) ?? null;
   const seatTwo = players.find((player) => player.color === seatColors[1]) ?? null;
   const myColor = me?.color ?? null;
-  const game = room.game;
+  const game = room.game as BoardGame;
   const moveVerb = gameDef.moveVerb;
   const myTurn =
     connected && room.status === 'playing' && myColor !== null && game.currentTurn === myColor;

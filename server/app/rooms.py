@@ -15,7 +15,9 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .protocol import GOMOKU_BOARD_SIZES, ErrorCode, ProtocolError, now_ms
-from .games import GameRules, build_registry
+from .games import REALTIME_GAME_TYPES, GameRules, build_registry
+from .games.tank import MAX_PLAYERS as TANK_MAX_PLAYERS, TankWorld
+from .realtime.engine import TankSession
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,8 @@ class ConnectionHub(Protocol):
 
     async def send_to_player(self, player_id: str, message: dict[str, Any]) -> None: ...
 
+    async def send_bytes_to_player(self, player_id: str, data: bytes) -> None: ...
+
     def online_player_ids(self) -> list[str]: ...
 
 
@@ -48,6 +52,8 @@ class Player:
     ready: bool = False
     disconnect_epoch: int = 0
     is_bot: bool = False
+    #: 实时游戏的座位序号（0–7），回合制游戏为 None。
+    slot: int | None = None
     records: list[dict[str, Any]] = field(default_factory=list)
 
     def snapshot(self, *, is_host: bool) -> dict[str, Any]:
@@ -59,6 +65,7 @@ class Player:
             "ready": self.ready,
             "isHost": is_host,
             "isBot": self.is_bot,
+            "slot": self.slot,
         }
 
 
@@ -100,6 +107,12 @@ class Room:
     chat: list[ChatEntry] = field(default_factory=list)
     chat_seq: int = 0
     state: dict[str, Any] = field(default_factory=dict)
+    #: 房间人数上限：回合制 2 人，实时游戏最多 8 人。
+    max_players: int = 2
+    #: 实时对局的 tick 会话；回合制房间为 None。
+    session: TankSession | None = None
+    #: 人机房电脑难度：easy / normal / hard。
+    bot_difficulty: str = "normal"
 
     # -- 便捷属性（兼容旧测试/调用方）-----------------------------------
     @property
@@ -237,6 +250,9 @@ class RoomManager:
             room = self._room_of(player_id)
             if room is None:
                 return
+            if room.session is not None:
+                # 断线后不要保留「按住前进/开火」的输入，避免坦克独自乱跑。
+                room.session.clear_input(player_id)
             room.updated_at = now_ms()
             await self._broadcast_room(room)
             if self.disconnect_grace_seconds > 0:
@@ -274,6 +290,10 @@ class RoomManager:
             if not task.done():
                 task.cancel()
         self._ai_tasks.clear()
+        for room in self._rooms.values():
+            if room.session is not None:
+                room.session.cancel()
+                room.session = None
 
     # ------------------------------------------------------------------
     # 房间操作
@@ -290,6 +310,8 @@ class RoomManager:
         mode: str = "pvp",
         game_type: str = "gomoku",
         board_size: int | None = None,
+        bot_count: int | None = None,
+        bot_difficulty: str | None = None,
     ) -> Room:
         async with self._lock:
             self._ensure_not_in_room(player_id)
@@ -303,6 +325,15 @@ class RoomManager:
                 board_size=board_size,
             )
             if mode == "ai":
+                if self._is_realtime(room):
+                    self._start_ai_tank_locked(
+                        room,
+                        bot_count if bot_count is not None else 3,
+                        bot_difficulty or "normal",
+                    )
+                    await self._broadcast_room(room)
+                    await self._push_lobby()
+                    return room
                 self._start_ai_locked(room)
                 await self._broadcast_room(room)
                 self._schedule_ai_move(room)
@@ -333,7 +364,11 @@ class RoomManager:
         player = self._require_player(player_id)
         player.name = name
         player.ready = False
-        if color == "random":
+        if game_type in REALTIME_GAME_TYPES:
+            # 实时游戏没有执子颜色概念，座位由 slot 决定（房主先坐 0 号位）。
+            actual_color = rules.colors[0]
+            player.slot = 0
+        elif color == "random":
             actual_color = random.choice(rules.colors)
         elif color in rules.create_colors:
             actual_color = color
@@ -353,6 +388,7 @@ class RoomManager:
             color_order=rules.colors,
             state=rules.new_game(board_size=board_size),
             players=[player],
+            max_players=self._max_players(game_type),
         )
         self._rooms[room.id] = room
         self._player_room[player.id] = room.id
@@ -405,7 +441,7 @@ class RoomManager:
                 for room in self._rooms.values()
                 if room.visibility == "public"
                 and room.status == "waiting"
-                and len(room.players) == 1
+                and len(room.players) < room.max_players
                 and room.game_type == game_type
             ]
             if candidates:
@@ -438,7 +474,7 @@ class RoomManager:
             player = self._require_player(player_id)
             player.ready = not player.ready
             started = (
-                len(room.players) == 2
+                len(room.players) >= 2
                 and all(p.ready for p in room.players)
             )
             if started:
@@ -484,6 +520,10 @@ class RoomManager:
         async with self._lock:
             room = self._require_room(player_id)
             player = self._require_player(player_id)
+            if self._is_realtime(room):
+                raise ProtocolError(
+                    ErrorCode.GAME_NOT_ACTIVE, "坦克大战请直接离开房间退出对局"
+                )
             if player.is_bot or room.status != "playing":
                 raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
             opponent = next((p for p in room.players if p.id != player.id), None)
@@ -558,6 +598,24 @@ class RoomManager:
             rules = self.rules(room.game_type)
             if room.status != "finished":
                 raise ProtocolError(ErrorCode.GAME_NOT_ACTIVE)
+
+            if self._is_realtime(room):
+                if room.mode == "ai":
+                    room.rematch_votes = []
+                    self._start_game_locked(room)
+                    await self._broadcast_room(room)
+                    return room
+                if player_id not in room.rematch_votes:
+                    room.rematch_votes.append(player_id)
+                room.updated_at = now_ms()
+                everyone_voted = len(room.players) >= 2 and all(
+                    p.id in room.rematch_votes for p in room.players
+                )
+                if everyone_voted:
+                    room.rematch_votes = []
+                    self._start_game_locked(room)
+                await self._broadcast_room(room)
+                return room
 
             if room.mode == "ai":
                 player = self._require_player(player_id)
@@ -722,6 +780,9 @@ class RoomManager:
     # ------------------------------------------------------------------
 
     def _start_game_locked(self, room: Room) -> None:
+        if self._is_realtime(room):
+            self._start_realtime_locked(room)
+            return
         rules = self.rules(room.game_type)
         now = now_ms()
         room.state = rules.new_game(board_size=room.board_size or None)
@@ -755,6 +816,9 @@ class RoomManager:
         self._record_results_locked(room)
 
     def _record_results_locked(self, room: Room) -> None:
+        if self._is_realtime(room):
+            self._record_tank_results_locked(room)
+            return
         rules = self.rules(room.game_type)
         winner = rules.winner(room.state)
         reason = rules.finished_reason(room.state) or "unknown"
@@ -846,6 +910,9 @@ class RoomManager:
         room = self._rooms.get(room_id)
         if room is None:
             return
+        if self._is_realtime(room):
+            await self._leave_realtime_locked(room, player_id, exclude=exclude)
+            return
         rules = self.rules(room.game_type)
         self._cancel_disconnect_task(player_id)
         room.players = [p for p in room.players if p.id != player_id]
@@ -895,6 +962,19 @@ class RoomManager:
     def _reset_to_waiting_locked(self, room: Room, host: Player) -> None:
         rules = self.rules(room.game_type)
         now = now_ms()
+        if self._is_realtime(room):
+            room.host_id = host.id
+            room.players = [host]
+            host.color = room.color_order[0]
+            host.slot = 0
+            host.ready = False
+            room.status = "waiting"
+            room.state = rules.new_game()
+            room.pending_undo = None
+            room.rematch_votes = []
+            room.session = None
+            room.updated_at = now
+            return
         room.host_id = host.id
         room.players = [host]
         host.color = room.color_order[0]
@@ -908,14 +988,18 @@ class RoomManager:
     def _join_room_locked(self, room: Room, player_id: str, name: str) -> None:
         if room.status != "waiting":
             raise ProtocolError(ErrorCode.ROOM_STARTED)
-        if len(room.players) >= 2:
+        if len(room.players) >= room.max_players:
             raise ProtocolError(ErrorCode.ROOM_FULL)
         host = room.host or room.players[0]
         player = self._require_player(player_id)
         player.name = name
-        player.color = (
-            room.color_order[1] if host.color == room.color_order[0] else room.color_order[0]
-        )
+        if self._is_realtime(room):
+            player.slot = len(room.players)
+            player.color = room.color_order[0]
+        else:
+            player.color = (
+                room.color_order[1] if host.color == room.color_order[0] else room.color_order[0]
+            )
         player.ready = False
         player.connected = True
         room.players.append(player)
@@ -978,7 +1062,7 @@ class RoomManager:
             "boardSize": room.board_size,
             "status": room.status,
             "playerCount": len(room.players),
-            "maxPlayers": 2,
+            "maxPlayers": room.max_players,
             "hostName": host.name if host else "",
             "createdAt": room.created_at,
         }
@@ -1004,6 +1088,167 @@ class RoomManager:
             "game": copy.deepcopy(room.state),
             "chat": [entry.to_dict() for entry in room.chat],
         }
+
+    # ------------------------------------------------------------------
+    # 实时游戏（坦克大战）：tick 会话与生命周期
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _is_realtime(room: "Room | str") -> bool:
+        game_type = room if isinstance(room, str) else room.game_type
+        return game_type in REALTIME_GAME_TYPES
+
+    @staticmethod
+    def _max_players(game_type: str) -> int:
+        return TANK_MAX_PLAYERS if game_type in REALTIME_GAME_TYPES else 2
+
+    def _start_realtime_locked(self, room: Room) -> None:
+        """开局：按座位建立 TankWorld，并启动 20Hz tick 会话。"""
+        now = now_ms()
+        players: list[tuple[str, str]] = []
+        for index, player in enumerate(room.ordered_players()):
+            player.slot = index
+            player.ready = False
+            players.append((player.id, player.name or f"玩家{index + 1}"))
+        world = TankWorld(players, seed=secrets.randbelow(1 << 30), started_at_ms=now)
+        room.state = world.info()
+        room.status = "playing"
+        room.rematch_votes = []
+        room.pending_undo = None
+        room.updated_at = now
+        room.session = TankSession(
+            room,
+            world,
+            self._hub,
+            on_finish=self._on_tank_finished,
+            room_id=room.id,
+        )
+        room.session.start()
+        logger.info("实时对局开始：房间 %s，%d 人", room.id, len(players))
+
+    def _start_ai_tank_locked(self, room: Room, bot_count: int, difficulty: str = "normal") -> None:
+        """人机混战：房主 + N 台电脑坦克，建房即开局，电脑由 TankSession 驱动。"""
+        bots = max(1, min(TANK_MAX_PLAYERS - 1, int(bot_count)))
+        human = room.players[0]
+        room.visibility = "private"
+        room.mode = "ai"
+        room.bot_difficulty = difficulty if difficulty in ("easy", "normal", "hard") else "normal"
+        if room.name.endswith("的棋局"):
+            room.name = f"{human.name} 的坦克混战"
+        human.ready = False
+        for index in range(bots):
+            room.players.append(
+                Player(
+                    id=f"bot_{secrets.token_hex(4)}",
+                    token="",
+                    name=f"电脑{index + 1}",
+                    color=room.color_order[0],
+                    is_bot=True,
+                )
+            )
+        self._start_game_locked(room)
+
+    async def _on_tank_finished(self, room_id: str) -> None:
+        """tick 会话结束后的结算回调（独立任务，避免与会话互相等待）。"""
+        async with self._lock:
+            room = self._rooms.get(room_id)
+            if room is None or room.status != "playing":
+                return
+            await self._finish_tank_locked(room)
+
+    async def _finish_tank_locked(self, room: Room) -> None:
+        session = room.session
+        if session is not None:
+            room.state = session.world.info()
+        room.status = "finished"
+        room.rematch_votes = []
+        room.pending_undo = None
+        self._record_results_locked(room)
+        room.session = None
+        if session is not None:
+            await session.stop()
+        room.updated_at = now_ms()
+        await self._broadcast_room(room)
+        await self._send_records_to_room(room)
+        await self._push_lobby()
+        logger.info("实时对局结束：房间 %s", room.id)
+
+    def _record_tank_results_locked(self, room: Room) -> None:
+        """自由混战战绩：击杀榜第一名 win，其余 loss；并列第一记 draw。"""
+        session = room.session
+        world = session.world if session is not None else None
+        winner_id = world.winner() if world is not None else None
+        reason = (world.ended_reason() if world is not None else None) or "unknown"
+        scores = world.scores() if world is not None else {}
+        at = now_ms()
+        for player in room.players:
+            if player.is_bot:
+                continue
+            score = scores.get(player.id) or {}
+            kills = int(score.get("kills", 0))
+            if winner_id is None:
+                result = "draw"
+            elif winner_id == player.id:
+                result = "win"
+            else:
+                result = "loss"
+            player.records.append(
+                {
+                    "result": result,
+                    "opponent": "",
+                    "mode": room.mode,
+                    "gameType": room.game_type,
+                    "endedReason": reason,
+                    "moves": kills,
+                    "myColor": player.color,
+                    "at": at,
+                }
+            )
+            if len(player.records) > MAX_RECORDS:
+                del player.records[: len(player.records) - MAX_RECORDS]
+
+    async def _leave_realtime_locked(
+        self, room: Room, player_id: str, *, exclude: set[str] | None = None
+    ) -> None:
+        """玩家离开实时房间：移除坦克；不足 2 人时按弃权结束本局。"""
+        self._cancel_disconnect_task(player_id)
+        session = room.session
+        if session is not None:
+            session.clear_input(player_id)
+            session.world.remove_player(player_id)
+        room.players = [p for p in room.players if p.id != player_id]
+        room.updated_at = now_ms()
+
+        humans = [player for player in room.players if not player.is_bot]
+        if not humans:
+            if session is not None:
+                await session.stop()
+                room.session = None
+            self._rooms.pop(room.id, None)
+            await self._clear_spectators_locked(room)
+            await self._push_lobby(exclude=exclude)
+            return
+
+        if room.status == "playing" and len(room.players) < 2 and session is not None:
+            session.world.end_match("forfeit")
+            await self._finish_tank_locked(room)
+        else:
+            await self._broadcast_room(room)
+        await self._push_lobby(exclude=exclude)
+
+    def submit_binary(self, player_id: str, data: bytes) -> bool:
+        """WS 层收到二进制帧时调用：转交给玩家所在房间的实时会话。"""
+        room = self._room_of(player_id)
+        if room is None or room.session is None or room.status != "playing":
+            return False
+        if not any(player.id == player_id for player in room.players):
+            return False
+        room.session.submit(player_id, data)
+        return True
+
+    def session_of(self, player_id: str) -> TankSession | None:
+        room = self._room_of(player_id)
+        return room.session if room is not None else None
 
     async def _broadcast_room(self, room: Room, *, exclude: set[str] | None = None) -> None:
         message = {"type": "room", "room": self._room_snapshot(room)}

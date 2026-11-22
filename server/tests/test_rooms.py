@@ -28,7 +28,7 @@ ROOM_KEYS = {
     "game",
     "chat",
 }
-PLAYER_KEYS = {"id", "name", "color", "connected", "ready", "isHost", "isBot"}
+PLAYER_KEYS = {"id", "name", "color", "connected", "ready", "isHost", "isBot", "slot"}
 GAME_KEYS = {
     "boardSize",
     "board",

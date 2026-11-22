@@ -18,6 +18,12 @@ import type {
   NoticeLevel,
   PendingUndo,
   Player,
+  RoomGame,
+  TankEvent,
+  TankGame,
+  TankMap,
+  TankObstacle,
+  TankScore,
   Point,
   Room,
   RoomStatus,
@@ -65,7 +71,9 @@ function asChessColor(value: unknown, fallback: 'red' | 'black' = 'red'): 'red' 
 }
 
 function asGameType(value: unknown): GameType {
-  return value === 'chess' ? 'chess' : 'gomoku';
+  if (value === 'chess') return 'chess';
+  if (value === 'tank') return 'tank';
+  return 'gomoku';
 }
 
 function asRoomStatus(value: unknown): RoomStatus {
@@ -231,6 +239,7 @@ function asPlayer(value: unknown, index: number): Player | null {
     ready: asBoolean(value.ready, false),
     isHost: asBoolean(value.isHost, index === 0),
     isBot: asBoolean(value.isBot, false),
+    slot: asNumber(value.slot, -1) >= 0 ? asNumber(value.slot, 0) : null,
   };
 }
 
@@ -312,7 +321,74 @@ export function normalizeChessGame(value: unknown): ChessGame {
   };
 }
 
-export function normalizeGame(value: unknown, gameType: GameType): GomokuGame | ChessGame {
+function asTankObstacles(value: unknown): TankObstacle[] {
+  if (!Array.isArray(value)) return [];
+  const obstacles: TankObstacle[] = [];
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const w = asNumber(item.w, 0);
+    const h = asNumber(item.h, 0);
+    if (w <= 0 || h <= 0) continue;
+    obstacles.push({ x: asNumber(item.x, 0), y: asNumber(item.y, 0), w, h });
+  }
+  return obstacles;
+}
+
+function asTankSpawns(value: unknown): Array<{ x: number; y: number }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isRecord)
+    .map((item) => ({ x: asNumber(item.x, 0), y: asNumber(item.y, 0) }));
+}
+
+function asTankMap(value: unknown): TankMap | null {
+  if (!isRecord(value)) return null;
+  const width = asNumber(value.width, 48);
+  const height = asNumber(value.height, 48);
+  if (width <= 0 || height <= 0) return null;
+  return {
+    width,
+    height,
+    obstacles: asTankObstacles(value.obstacles),
+    spawns: asTankSpawns(value.spawns),
+    theme: asString(value.theme, 'warehouse'),
+  };
+}
+
+function asTankScores(value: unknown): Record<string, TankScore> {
+  const scores: Record<string, TankScore> = {};
+  if (!isRecord(value)) return scores;
+  for (const [playerId, raw] of Object.entries(value)) {
+    if (!isRecord(raw)) continue;
+    scores[playerId] = {
+      kills: Math.max(0, Math.round(asNumber(raw.kills, 0))),
+      deaths: Math.max(0, Math.round(asNumber(raw.deaths, 0))),
+    };
+  }
+  return scores;
+}
+
+export function normalizeTankGame(value: unknown): TankGame {
+  const raw = isRecord(value) ? value : {};
+  const phase = raw.phase === 'playing' || raw.phase === 'finished' ? raw.phase : 'waiting';
+  const reason =
+    raw.endedReason === 'kills' || raw.endedReason === 'time' || raw.endedReason === 'forfeit'
+      ? raw.endedReason
+      : null;
+  return {
+    phase,
+    tickRate: asNumber(raw.tickRate, 20) || 20,
+    map: asTankMap(raw.map),
+    targetKills: asNumber(raw.targetKills, 15),
+    endsAt: asTimestamp(raw.endsAt),
+    winnerId: typeof raw.winnerId === 'string' ? raw.winnerId : null,
+    endedReason: reason,
+    scores: asTankScores(raw.scores),
+  };
+}
+
+export function normalizeGame(value: unknown, gameType: GameType): RoomGame {
+  if (gameType === 'tank') return normalizeTankGame(value);
   return gameType === 'chess' ? normalizeChessGame(value) : normalizeGomokuGame(value);
 }
 
@@ -403,6 +479,25 @@ function asRecords(value: unknown): MatchRecord[] {
   return records;
 }
 
+function asTankEvent(value: unknown): TankEvent | null {
+  if (!isRecord(value)) return null;
+  const kind = value.kind;
+  if (kind !== 'hit' && kind !== 'kill' && kind !== 'respawn' && kind !== 'match_end') {
+    return null;
+  }
+  return {
+    kind,
+    shooterId: typeof value.shooterId === 'string' ? value.shooterId : undefined,
+    targetId: typeof value.targetId === 'string' ? value.targetId : undefined,
+    playerId: typeof value.playerId === 'string' ? value.playerId : undefined,
+    x: typeof value.x === 'number' ? value.x : undefined,
+    y: typeof value.y === 'number' ? value.y : undefined,
+    damage: typeof value.damage === 'number' ? value.damage : undefined,
+    winnerId: typeof value.winnerId === 'string' ? value.winnerId : null,
+    reason: typeof value.reason === 'string' ? value.reason : undefined,
+  };
+}
+
 function parseJson(data: string): unknown {
   try {
     return JSON.parse(data) as unknown;
@@ -431,6 +526,8 @@ export function parseServerMessage(data: string): ServerMessage | null {
         reconnected: asBoolean(parsed.reconnected, false),
         serverTime: asNumber(parsed.serverTime, Date.now()),
         protocolVersion: asNumber(parsed.protocolVersion, 1),
+        binary: asBoolean(parsed.binary, false),
+        tickRate: asNumber(parsed.tickRate, 20) || 20,
       };
     }
     case 'room':
@@ -457,6 +554,10 @@ export function parseServerMessage(data: string): ServerMessage | null {
       return { type: 'pong', t: asNumber(parsed.t, 0) };
     case 'records':
       return { type: 'records', records: asRecords(parsed.records) };
+    case 'tank_event': {
+      const event = asTankEvent(parsed.event);
+      return event ? { type: 'tank_event', event } : null;
+    }
     default:
       return null;
   }

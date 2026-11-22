@@ -18,6 +18,7 @@ from app.realtime.codec import (  # noqa: E402
     MASK_ANGLE,
     MASK_FLAGS,
     MASK_HP,
+    MASK_TURRET,
     MASK_X,
     MASK_Y,
     EntityDelta,
@@ -41,6 +42,7 @@ def entity_json(entity: EntitySnapshot) -> dict[str, int]:
         "vx": entity.vx,
         "vy": entity.vy,
         "angle": entity.angle,
+        "turret": entity.turret,
         "hp": entity.hp,
         "flags": entity.flags,
     }
@@ -55,6 +57,7 @@ def delta_json(entity: EntityDelta) -> dict[str, int | None]:
         "vx": entity.vx,
         "vy": entity.vy,
         "angle": entity.angle,
+        "turret": entity.turret,
         "hp": entity.hp,
         "flags": entity.flags,
     }
@@ -66,8 +69,8 @@ def main() -> None:
         seq=7,
         tick=120,
         entities=(
-            EntitySnapshot(1, 12345, -6789, 30, 0, 16384, 100, 1),
-            EntitySnapshot(2, -100, 200, 0, -15, 32768, 80, 5),
+            EntitySnapshot(1, 12345, -6789, 30, 0, 16384, 20000, 100, 1),
+            EntitySnapshot(2, -100, 200, 0, -15, 32768, 4000, 80, 5),
         ),
     )
     delta = SnapshotDelta(
@@ -77,7 +80,7 @@ def main() -> None:
         baseline_tick=120,
         entities=(
             EntityDelta(1, MASK_X | MASK_Y, x=12400, y=-6700),
-            EntityDelta(2, MASK_ANGLE, angle=33000),
+            EntityDelta(2, MASK_ANGLE | MASK_TURRET, angle=33000, turret=1234),
             EntityDelta(3, MASK_HP | MASK_FLAGS, hp=42, flags=0x0A),
         ),
     )

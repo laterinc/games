@@ -3,7 +3,7 @@
  * 房间生命周期（准备/悔棋/认输/观战/聊天/战绩）是通用的，棋盘与走法由 gameType 区分。
  */
 
-export type GameType = 'gomoku' | 'chess';
+export type GameType = 'gomoku' | 'chess' | 'tank';
 export type Color = 'black' | 'white' | 'red';
 export type GomokuColor = 'black' | 'white';
 export type ChessColor = 'red' | 'black';
@@ -81,7 +81,46 @@ export interface ChessGame {
   captured: { red: string[]; black: string[] };
 }
 
-export type RoomGame = GomokuGame | ChessGame;
+/* --------------------------------- 坦克大战 -------------------------------- */
+
+export interface TankObstacle {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export interface TankSpawn {
+  x: number;
+  y: number;
+}
+
+export interface TankMap {
+  width: number;
+  height: number;
+  obstacles: TankObstacle[];
+  spawns: TankSpawn[];
+  theme: string;
+}
+
+export interface TankScore {
+  kills: number;
+  deaths: number;
+}
+
+/** 实时对局里 `room.game` 的形状：只含地图与比分，实体走二进制快照。 */
+export interface TankGame {
+  phase: 'waiting' | 'playing' | 'finished';
+  tickRate: number;
+  map: TankMap | null;
+  targetKills: number;
+  endsAt: number | null;
+  winnerId: string | null;
+  endedReason: 'kills' | 'time' | 'forfeit' | null;
+  scores: Record<string, TankScore>;
+}
+
+export type RoomGame = GomokuGame | ChessGame | TankGame;
 
 /* -------------------------------- 房间 -------------------------------- */
 
@@ -94,6 +133,8 @@ export interface Player {
   isHost: boolean;
   /** 是否为人机对战中的电脑。 */
   isBot: boolean;
+  /** 实时游戏的座位序号（0–7），回合制为 null。 */
+  slot?: number | null;
 }
 
 export interface ChatMessage {
@@ -179,6 +220,10 @@ export interface WelcomeMessage {
   reconnected: boolean;
   serverTime: number;
   protocolVersion: number;
+  /** 服务端是否支持实时二进制帧（协议 v3 能力协商）。 */
+  binary?: boolean;
+  /** 实时游戏 tick 频率。 */
+  tickRate?: number;
 }
 
 export interface RoomMessage {
@@ -218,6 +263,25 @@ export interface RecordsMessage {
   records: MatchRecord[];
 }
 
+export type TankEventKind = 'hit' | 'kill' | 'respawn' | 'match_end';
+
+export interface TankEvent {
+  kind: TankEventKind;
+  shooterId?: string;
+  targetId?: string;
+  playerId?: string;
+  x?: number;
+  y?: number;
+  damage?: number;
+  winnerId?: string | null;
+  reason?: string;
+}
+
+export interface TankEventMessage {
+  type: 'tank_event';
+  event: TankEvent;
+}
+
 export type ServerMessage =
   | WelcomeMessage
   | RoomMessage
@@ -226,7 +290,8 @@ export type ServerMessage =
   | NoticeMessage
   | ErrorMessage
   | PongMessage
-  | RecordsMessage;
+  | RecordsMessage
+  | TankEventMessage;
 
 /* ------------------------------ 客户端 → 服务端 ------------------------------ */
 
@@ -245,6 +310,10 @@ export interface CreateRoomPayload {
   color?: CreateColor;
   /** 仅五子棋：棋盘路数（9/11/13/15/17/19）。 */
   boardSize?: number;
+  /** 仅坦克大战人机：电脑坦克数量 1–7。 */
+  botCount?: number;
+  /** 仅坦克大战人机：电脑难度。 */
+  botDifficulty?: 'easy' | 'normal' | 'hard';
   mode?: 'pvp' | 'ai';
 }
 

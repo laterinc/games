@@ -19,6 +19,9 @@ WELCOME_KEYS = {
     "reconnected",
     "serverTime",
     "protocolVersion",
+    # 协议 v3 能力协商：实时游戏（坦克大战）的二进制帧与 tick 频率
+    "binary",
+    "tickRate",
 }
 
 
@@ -31,6 +34,8 @@ def _welcome(ws, *, reconnected: bool = False) -> dict[str, Any]:
     assert message["playerId"].startswith("p_")
     assert message["token"].startswith("t_")
     assert isinstance(message["serverTime"], int)
+    assert message["binary"] is True
+    assert message["tickRate"] == 20
     # welcome 之后紧跟一条当前玩家的最近战绩
     records = ws.receive_json()
     assert records["type"] == "records", records

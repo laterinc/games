@@ -3,6 +3,7 @@ import fixtures from '../../../../shared/realtime-v3.fixtures.json';
 import {
   FLAG_DELTA,
   FRAME_SNAPSHOT,
+  MASK_TURRET,
   MASK_X,
   MAX_ENTITIES,
   decodeDelta,
@@ -54,6 +55,7 @@ function expectedKeyframe(
       vx: item.vx,
       vy: item.vy,
       angle: item.angle,
+      turret: item.turret,
       hp: item.hp,
       flags: item.flags,
     })),
@@ -81,6 +83,7 @@ function expectedDelta(decoded: (typeof fixtures.cases)[number]['decoded']): Sna
       vx: item.vx,
       vy: item.vy,
       angle: item.angle,
+      turret: item.turret,
       hp: item.hp,
       flags: item.flags,
     })),
@@ -133,7 +136,7 @@ describe('协议 v3 编解码防御', () => {
     expect(() => decodeInput(Uint8Array.from([...input, 0]))).toThrow(/长度/);
   });
 
-  it('拒绝未知增量 mask', () => {
+  it('增量 mask 标记字段却缺少字节时按截断拒绝', () => {
     const bytes = new Uint8Array(19);
     const view = new DataView(bytes.buffer);
     view.setUint8(0, FRAME_SNAPSHOT);
@@ -144,8 +147,8 @@ describe('协议 v3 编解码防御', () => {
     view.setUint32(10, 0, true);
     view.setUint16(14, 1, true);
     view.setUint16(16, 1, true);
-    view.setUint8(18, 0x80);
-    expect(() => decodeDelta(bytes)).toThrow(/mask/);
+    view.setUint8(18, MASK_TURRET);
+    expect(() => decodeDelta(bytes)).toThrow(/截断/);
   });
 
   it('编码时检查范围与 mask 一致性', () => {
@@ -156,7 +159,9 @@ describe('协议 v3 编解码防御', () => {
       encodeKeyframe({
         seq: 0,
         tick: 0,
-        entities: [{ id: 1, x: 0x8000, y: 0, vx: 0, vy: 0, angle: 0, hp: 0, flags: 0 }],
+        entities: [
+          { id: 1, x: 0x8000, y: 0, vx: 0, vy: 0, angle: 0, turret: 0, hp: 0, flags: 0 },
+        ],
       }),
     ).toThrow();
     expect(() =>
@@ -174,6 +179,7 @@ describe('协议 v3 编解码防御', () => {
             vx: null,
             vy: null,
             angle: null,
+            turret: null,
             hp: null,
             flags: null,
           },

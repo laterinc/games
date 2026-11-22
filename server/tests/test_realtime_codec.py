@@ -42,6 +42,7 @@ def _keyframe(data: dict) -> SnapshotKeyframe:
                 vx=item["vx"],
                 vy=item["vy"],
                 angle=item["angle"],
+                turret=item["turret"],
                 hp=item["hp"],
                 flags=item["flags"],
             )
@@ -65,6 +66,7 @@ def _delta(data: dict) -> SnapshotDelta:
                 vx=item["vx"],
                 vy=item["vy"],
                 angle=item["angle"],
+                turret=item["turret"],
                 hp=item["hp"],
                 flags=item["flags"],
             )
@@ -125,11 +127,12 @@ def test_trailing_bytes_rejected() -> None:
         codec.decode_input(raw + b"\x00")
 
 
-def test_unknown_delta_mask_rejected() -> None:
+def test_delta_mask_requires_its_bytes() -> None:
     header = bytes([codec.FRAME_SNAPSHOT, codec.FLAG_DELTA, 1, 0, 1, 0, 0, 0])
     payload = (0).to_bytes(2, "little") + (0).to_bytes(4, "little") + (1).to_bytes(2, "little")
-    entity = (1).to_bytes(2, "little") + bytes([0x80])
-    with pytest.raises(ValueError, match="mask"):
+    # mask 标记了 turret，但没带 turret 的两个字节 → 必须按截断拒绝
+    entity = (1).to_bytes(2, "little") + bytes([codec.MASK_TURRET])
+    with pytest.raises(ValueError, match="截断"):
         codec.decode_delta(header + payload + entity)
 
 
@@ -141,7 +144,7 @@ def test_encode_ranges_rejected() -> None:
             SnapshotKeyframe(
                 seq=0,
                 tick=0,
-                entities=(EntitySnapshot(1, 0x8000, 0, 0, 0, 0, 0, 0),),
+                entities=(EntitySnapshot(1, 0x8000, 0, 0, 0, 0, 0, 0, 0),),
             )
         )
 

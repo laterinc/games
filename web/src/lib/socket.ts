@@ -5,7 +5,9 @@
  * - welcome 后持久化 playerId + token；重连先发 hello 恢复身份与所在房间。
  * - 自动重连：指数退避 0.5s → 1s → 2s → 4s → 8s → 10s（封顶）。
  * - 每 20s 发送 ping；页面卸载时关闭连接。
- * - 对外暴露 send / onMessage / status。
+ * - 对外暴露 send / onMessage / onBinary / status。
+ * - 实时游戏（坦克大战）的二进制输入与快照帧走 sendBinary / onBinary，
+ *   不进入 JSON 解析，也不会跨连接重放（重连后由服务端的关键帧自然恢复）。
  */
 import type { ClientMessage, ServerMessage } from '../types';
 import { parseServerMessage } from './protocol';
@@ -15,6 +17,7 @@ export type SocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed' | '
 
 type MessageListener = (message: ServerMessage) => void;
 type StatusListener = (status: SocketStatus) => void;
+type BinaryListener = (data: ArrayBuffer) => void;
 
 const RECONNECT_DELAYS_MS = [500, 1000, 2000, 4000, 8000, 10000];
 const PING_INTERVAL_MS = 20_000;
@@ -80,6 +83,7 @@ export class GameSocket {
   private socket: WebSocket | null = null;
   private readonly messageListeners = new Set<MessageListener>();
   private readonly statusListeners = new Set<StatusListener>();
+  private readonly binaryListeners = new Set<BinaryListener>();
   private currentStatus: SocketStatus = 'connecting';
   private attempts = 0;
   private reconnectTimer: number | null = null;
@@ -153,6 +157,14 @@ export class GameSocket {
     };
   }
 
+  /** 订阅实时对局的二进制帧（快照）。 */
+  onBinary(listener: BinaryListener): () => void {
+    this.binaryListeners.add(listener);
+    return () => {
+      this.binaryListeners.delete(listener);
+    };
+  }
+
   /**
    * 发送消息。连接尚未就绪时最多缓存 20 条，welcome 后按序补发。
    * 返回 false 表示消息进入等待队列（未立即发送）。
@@ -166,6 +178,19 @@ export class GameSocket {
     if (this.pending.length >= MAX_PENDING) this.pending.shift();
     this.pending.push(message);
     return false;
+  }
+
+  /** 发送二进制帧（实时游戏输入）。连接未就绪时直接丢弃：实时输入不该排队补发。 */
+  sendBinary(data: ArrayBuffer): boolean {
+    if (!this.canSend() || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    try {
+      this.socket.send(data);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /* ------------------------------ 内部实现 ------------------------------ */
@@ -200,6 +225,7 @@ export class GameSocket {
       return;
     }
     this.socket = socket;
+    socket.binaryType = 'arraybuffer';
     this.greeted = false;
     this.lastWelcome = null;
 
@@ -211,8 +237,15 @@ export class GameSocket {
       }
     };
     socket.onmessage = (event: MessageEvent<unknown>) => {
-      if (typeof event.data !== 'string') return;
-      this.handleRawMessage(event.data);
+      if (typeof event.data === 'string') {
+        this.handleRawMessage(event.data);
+        return;
+      }
+      if (event.data instanceof ArrayBuffer) {
+        for (const listener of this.binaryListeners) {
+          listener(event.data);
+        }
+      }
     };
     socket.onclose = (event: CloseEvent) => {
       if (this.socket !== socket) return;

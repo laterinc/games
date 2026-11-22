@@ -7,7 +7,8 @@
 
 - 通用头 8 字节：u8 frameType、u8 flags、u16 seq、u32 tick
 - 输入帧：u8 inputFlags、u16 aim（共 11 字节）
-- 快照关键帧：u16 entityCount + N × 14 字节实体
+- 快照关键帧：u16 entityCount + N × 16 字节实体
+  （id、x、y、vx、vy、hull、turret、hp、flags）
 - 快照增量帧：u16 ackSeq、u32 baselineTick、u16 changedCount
   + N × (u16 id、u8 mask、按 mask 顺序的变化字段)
 """
@@ -38,9 +39,10 @@ MASK_Y: Final = 1 << 1
 MASK_VX: Final = 1 << 2
 MASK_VY: Final = 1 << 3
 MASK_ANGLE: Final = 1 << 4
+MASK_TURRET: Final = 1 << 7
 MASK_HP: Final = 1 << 5
 MASK_FLAGS: Final = 1 << 6
-DELTA_MASK_ALL: Final = 0x7F
+DELTA_MASK_ALL: Final = 0xFF
 
 MAX_ENTITIES: Final = 1024
 FIXED_SCALE: Final = 100.0
@@ -50,7 +52,7 @@ HEADER = struct.Struct("<BBHI")
 INPUT_PAYLOAD = struct.Struct("<BH")
 KEYFRAME_HEADER = struct.Struct("<H")
 DELTA_HEADER = struct.Struct("<HIH")
-ENTITY = struct.Struct("<HhhhhHBB")
+ENTITY = struct.Struct("<HhhhhHHBB")
 DELTA_ENTITY_HEADER = struct.Struct("<HB")
 
 # (mask, 属性名, struct 格式)；顺序即编码顺序，所有端必须一致。
@@ -60,6 +62,7 @@ DELTA_FIELDS: Final = (
     (MASK_VX, "vx", "<h"),
     (MASK_VY, "vy", "<h"),
     (MASK_ANGLE, "angle", "<H"),
+    (MASK_TURRET, "turret", "<H"),
     (MASK_HP, "hp", "<B"),
     (MASK_FLAGS, "flags", "<B"),
 )
@@ -86,6 +89,7 @@ class EntitySnapshot:
     vx: int
     vy: int
     angle: int
+    turret: int
     hp: int
     flags: int
 
@@ -106,6 +110,7 @@ class EntityDelta:
     vx: int | None = None
     vy: int | None = None
     angle: int | None = None
+    turret: int | None = None
     hp: int | None = None
     flags: int | None = None
 
@@ -197,6 +202,7 @@ def encode_keyframe(frame: SnapshotKeyframe) -> bytes:
         _check_int("vx", entity.vx, *I16)
         _check_int("vy", entity.vy, *I16)
         _check_int("angle", entity.angle, *U16)
+        _check_int("turret", entity.turret, *U16)
         _check_int("hp", entity.hp, *U8)
         _check_int("flags", entity.flags, *U8)
         buf += ENTITY.pack(
@@ -206,6 +212,7 @@ def encode_keyframe(frame: SnapshotKeyframe) -> bytes:
             entity.vx,
             entity.vy,
             entity.angle,
+            entity.turret,
             entity.hp,
             entity.flags,
         )
@@ -250,6 +257,8 @@ def _validate_delta_entity(entity: EntityDelta) -> None:
             _check_int(attr, value, *I16)
     if entity.angle is not None:
         _check_int("angle", entity.angle, *U16)
+    if entity.turret is not None:
+        _check_int("turret", entity.turret, *U16)
     if entity.hp is not None:
         _check_int("hp", entity.hp, *U8)
     if entity.flags is not None:

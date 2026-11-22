@@ -16,7 +16,7 @@
     {
       "name": "snapshot-keyframe",
       "type": "keyframe",
-      "hex": "02010700780000000200010039307be51e0000000040640102009cffc8000000f1ff00805005",
+      "hex": "02010700780000000200010039307be51e0000000040204e640102009cffc8000000f1ff0080a00f5005",
       "decoded": {
         "seq": 7,
         "tick": 120,
@@ -28,6 +28,7 @@
             "vx": 30,
             "vy": 0,
             "angle": 16384,
+            "turret": 20000,
             "hp": 100,
             "flags": 1
           },
@@ -38,6 +39,7 @@
             "vx": 0,
             "vy": -15,
             "angle": 32768,
+            "turret": 4000,
             "hp": 80,
             "flags": 5
           }
@@ -47,7 +49,7 @@
     {
       "name": "snapshot-delta",
       "type": "delta",
-      "hex": "020209008200000007007800000003000100037030d4e5020010e8800300602a0a",
+      "hex": "020209008200000007007800000003000100037030d4e5020090e880d2040300602a0a",
       "decoded": {
         "seq": 9,
         "tick": 130,
@@ -62,17 +64,19 @@
             "vx": null,
             "vy": null,
             "angle": null,
+            "turret": null,
             "hp": null,
             "flags": null
           },
           {
             "id": 2,
-            "mask": 16,
+            "mask": 144,
             "x": null,
             "y": null,
             "vx": null,
             "vy": null,
             "angle": 33000,
+            "turret": 1234,
             "hp": null,
             "flags": null
           },
@@ -84,6 +88,7 @@
             "vx": null,
             "vy": null,
             "angle": null,
+            "turret": null,
             "hp": 42,
             "flags": 10
           }

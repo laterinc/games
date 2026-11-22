@@ -170,7 +170,7 @@ function MoreGamesCard() {
       <div className="game-card-body">
         <h3 className="game-card-title">更多小游戏</h3>
         <p className="game-card-desc">
-          坦克大战等实时玩法正在开发中，之后还会继续加入新游戏。欢迎和朋友常来玩。
+          更多实时玩法正在开发中，之后还会继续加入新游戏。欢迎和朋友常来玩。
         </p>
         <div className="game-card-foot">
           <span className="game-card-soon">敬请期待</span>
@@ -194,7 +194,7 @@ export function Home({ connected, onOpenGame }: HomeProps) {
           </span>
           <h1 className="home-title">和朋友，随时开一局</h1>
           <p className="home-sub">
-            五子棋、中国象棋，打开浏览器就能玩。约上朋友、开个房间，输赢都图个开心。
+            五子棋、中国象棋、3D 坦克大战，打开浏览器就能玩。约上朋友、开个房间，输赢都图个开心。
           </p>
           <div className="home-hero-meta">
             <span>{playableCount} 款游戏</span>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Home } from './components/Home';
 import { Lobby } from './components/Lobby';
 import { RoomView } from './components/RoomView';
+import { TankRoom } from './games/tank/TankRoom';
 import { Toast } from './components/Toast';
 import { useGameSocket } from './hooks/useGameSocket';
 import type { GameType } from './types';
@@ -25,7 +26,7 @@ function currentUrl(): string {
 
 export default function App() {
   const route = useRoute();
-  const { state, actions } = useGameSocket();
+  const { state, actions, socket } = useGameSocket();
   const [nickname, setNickname] = useState(() => loadNickname() || randomNickname());
   const hadRoomRef = useRef(false);
   const lastRoomGameRef = useRef<GameType | null>(null);
@@ -174,7 +175,21 @@ export default function App() {
       </header>
 
       <main className="app-main">
-        {state.room ? (
+        {state.room && state.room.gameType === 'tank' ? (
+          <TankRoom
+            room={state.room}
+            socket={socket}
+            status={state.status}
+            playerId={state.playerId}
+            isSpectator={isSpectator}
+            chat={state.chat}
+            onReady={actions.ready}
+            onRematch={actions.rematch}
+            onLeave={actions.leaveRoom}
+            onChat={actions.chat}
+            notify={actions.notify}
+          />
+        ) : state.room ? (
           <RoomView
             room={state.room}
             status={state.status}
@@ -205,8 +220,8 @@ export default function App() {
             onCreateRoom={(options) =>
               actions.createRoom({ name: nickname, gameType, ...options })
             }
-            onAiGame={(color, boardSize) =>
-              actions.createAiRoom(nickname, gameType, color, boardSize)
+            onAiGame={(color, boardSize, botCount, botDifficulty) =>
+              actions.createAiRoom(nickname, gameType, color, boardSize, botCount, botDifficulty)
             }
             records={state.records}
             onJoinRoom={(roomId) => actions.joinRoom(roomId, nickname)}

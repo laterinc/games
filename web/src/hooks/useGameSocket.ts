@@ -119,6 +119,8 @@ export interface GameActions {
     gameType: GameType,
     color?: CreateColor,
     boardSize?: number,
+    botCount?: number,
+    botDifficulty?: 'easy' | 'normal' | 'hard',
   ) => void;
   ready: () => void;
   move: (input: MoveInput) => void;
@@ -135,6 +137,8 @@ export interface GameActions {
 export interface UseGameSocketResult {
   state: GameSocketState;
   actions: GameActions;
+  /** 底层连接实例：实时游戏（坦克大战）用它收发二进制帧。 */
+  socket: GameSocket;
 }
 
 function isValidNickname(name: string): boolean {
@@ -342,8 +346,10 @@ export function useGameSocket(): UseGameSocketResult {
     const createAiRoom = (
       name: string,
       gameType: GameType,
-      color: CreateColor = gameType === 'chess' ? 'red' : 'black',
+      color: CreateColor = gameType === 'gomoku' ? 'black' : 'red',
       boardSize?: number,
+      botCount?: number,
+      botDifficulty?: 'easy' | 'normal' | 'hard',
     ): void => {
       const trimmedName = name.trim();
       if (!isValidNickname(trimmedName)) {
@@ -354,11 +360,13 @@ export function useGameSocket(): UseGameSocketResult {
         type: 'create_room',
         name: trimmedName,
         gameType,
-        roomName: '人机对战',
+        roomName: gameType === 'tank' ? '人机混战' : '人机对战',
         visibility: 'private',
         color,
         mode: 'ai',
         ...(gameType === 'gomoku' && boardSize ? { boardSize } : {}),
+        ...(gameType === 'tank' && botCount ? { botCount } : {}),
+        ...(gameType === 'tank' && botDifficulty ? { botDifficulty } : {}),
       });
     };
 
@@ -450,5 +458,5 @@ export function useGameSocket(): UseGameSocketResult {
     };
   }, [send, pushToast, notify, dismissToast]);
 
-  return { state, actions };
+  return { state, actions, socket: socketRef.current };
 }

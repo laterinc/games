@@ -3571,3 +3571,1087 @@ button {
     min-height: 0;
   }
 }
+
+/* ==========================================================================
+   坦克大战（实时 3D 对局）：全屏画布 + HUD 覆盖层
+   ========================================================================== */
+
+.tank-room {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+}
+
+.tank-stage {
+  position: relative;
+  height: calc(100vh - 158px);
+  min-height: 460px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: radial-gradient(120% 90% at 50% 0%, #1b2836 0%, #0a1016 62%);
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+}
+
+.tank-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+  outline: none;
+}
+
+/* ------------------------------ HUD 布局 ------------------------------ */
+
+.tank-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+.tank-hud-top {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.tank-hud-room {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid var(--border-strong);
+  backdrop-filter: blur(8px);
+}
+
+.tank-hud-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+}
+
+.tank-hud-timer {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 18px;
+  border-radius: 14px;
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid var(--border-strong);
+  text-shadow: 0 0 18px rgba(233, 180, 95, 0.35);
+}
+
+.tank-hud-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.tank-hud-goal {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tank-hud-btn {
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid var(--border-strong);
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.tank-hud-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.tank-hud-left {
+  position: absolute;
+  top: 64px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 250px;
+}
+
+.tank-scoreboard {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: var(--radius-md);
+  background: rgba(8, 13, 19, 0.68);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+
+.tank-score-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.tank-score-row.is-me {
+  color: var(--text);
+  background: rgba(233, 180, 95, 0.12);
+}
+
+.tank-score-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.tank-score-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tank-score-kills {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.tank-score-deaths {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.tank-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tank-feed-item {
+  align-self: flex-start;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  animation: tank-feed-in 0.18s ease-out;
+}
+
+.tank-feed-item.tone-self {
+  color: var(--success);
+  border-color: rgba(98, 216, 169, 0.4);
+}
+
+.tank-feed-item.tone-enemy {
+  color: var(--danger);
+  border-color: rgba(255, 129, 129, 0.35);
+}
+
+@keyframes tank-feed-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.tank-hud-bottom-left {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  min-width: 260px;
+}
+
+.tank-vitals {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.tank-vitals-label {
+  width: 30px;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+}
+
+.tank-hp-track,
+.tank-reload-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tank-hp-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #7ee0b2, #3fbf8c);
+  transition: width 0.12s linear;
+}
+
+.tank-hp-fill.is-critical {
+  background: linear-gradient(90deg, #ff9a6a, #ff5f5f);
+}
+
+.tank-reload-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #f5c777, #e0a44c);
+  transition: width 0.08s linear;
+}
+
+.tank-hp-value {
+  width: 40px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+}
+
+.tank-controls-hint {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.tank-hud-bottom-right {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+  line-height: 0;
+}
+
+.tank-minimap {
+  width: 176px;
+  height: 176px;
+  border-radius: 10px;
+  display: block;
+}
+
+.tank-badge {
+  position: absolute;
+  top: 64px;
+  right: 16px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: rgba(8, 13, 19, 0.72);
+  border: 1px solid var(--border-strong);
+  color: var(--text-muted);
+}
+
+.tank-badge-spectator {
+  color: var(--info);
+  top: 64px;
+}
+
+.tank-badge-leader {
+  top: 104px;
+  color: var(--accent);
+}
+
+.tank-dead-hint {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%);
+  padding: 12px 22px;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  color: #ffd9c2;
+  background: rgba(60, 16, 12, 0.62);
+  border: 1px solid rgba(255, 129, 129, 0.4);
+  backdrop-filter: blur(6px);
+}
+
+/* ------------------------------ 结算浮层 ------------------------------ */
+
+.tank-result-backdrop {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 9, 13, 0.62);
+  backdrop-filter: blur(6px);
+  z-index: 5;
+}
+
+.tank-result {
+  width: min(420px, 88vw);
+  padding: 26px 26px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: tank-feed-in 0.22s ease-out;
+}
+
+.tank-result-title {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+}
+
+.tank-result-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.tank-result-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tank-result-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 13px;
+}
+
+.tank-result-list li.is-me {
+  background: rgba(233, 180, 95, 0.14);
+}
+
+.tank-result-rank {
+  width: 20px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+
+.tank-result-name {
+  flex: 1 1 auto;
+}
+
+.tank-result-score {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.tank-result-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* ------------------------------ 等待开局 ------------------------------ */
+
+.tank-wait {
+  min-height: calc(100vh - 158px);
+  padding: 26px clamp(16px, 4vw, 44px);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.tank-wait-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tank-wait-title {
+  margin: 0 0 6px;
+  font-size: clamp(20px, 2.4vw, 28px);
+}
+
+.tank-wait-code {
+  margin-left: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.62em;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+.tank-wait-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.tank-wait-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tank-wait-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.tank-seats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.tank-seat {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+  min-height: 62px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.tank-seat.is-filled {
+  border-style: solid;
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.tank-seat.is-me {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(233, 180, 95, 0.22) inset;
+}
+
+.tank-seat-slot {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent);
+  background: rgba(233, 180, 95, 0.12);
+}
+
+.tank-seat-name {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tank-seat-host {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+
+.tank-seat-ready {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.tank-seat-ready.is-ready {
+  color: var(--success);
+}
+
+.tank-wait-side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tank-ready-box {
+  padding: 18px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tank-ready-hint {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.tank-ready-tip {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+@media (max-width: 860px) {
+  .tank-wait-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tank-seats {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tank-stage {
+    height: calc(100vh - 130px);
+  }
+  .tank-minimap {
+    width: 120px;
+    height: 120px;
+  }
+  .tank-hud-left {
+    max-width: 180px;
+  }
+}
+
+/* ------------------------------ 大厅 hero 装饰 ------------------------------ */
+
+.hero-tank {
+  position: relative;
+  width: min(300px, 62vw);
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(233, 180, 95, 0.08), transparent 55%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 26px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 26px),
+    #0d141c;
+  border: 1px solid var(--border);
+}
+
+.hero-tank-body {
+  position: relative;
+  display: block;
+  width: 96px;
+  height: 58px;
+  border-radius: 12px 14px 8px 8px;
+  background: linear-gradient(160deg, #7b8a5a, #4a5638);
+  box-shadow: 0 12px 26px -14px rgba(0, 0, 0, 0.9);
+}
+
+.hero-tank-turret {
+  position: absolute;
+  left: 50%;
+  top: -16px;
+  width: 44px;
+  height: 34px;
+  transform: translateX(-50%);
+  border-radius: 12px 12px 6px 6px;
+  background: linear-gradient(160deg, #8c9b68, #55613f);
+}
+
+.hero-tank-barrel {
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  width: 76px;
+  height: 9px;
+  transform: translate(6px, -10px) rotate(-14deg);
+  transform-origin: left center;
+  border-radius: 4px;
+  background: linear-gradient(90deg, #9aa77a, #616e46);
+}
+
+.hero-tank-blast {
+  position: absolute;
+  right: 22%;
+  top: 34%;
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 214, 130, 0.95), rgba(255, 126, 66, 0.35) 45%, transparent 70%);
+  filter: blur(1px);
+}
+
+.hero-mini-caption {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--text-dim);
+}
+
+/* ==========================================================================
+   坦克大战 · HUD 视觉增强（电影感叠加层 / 准星 / 受击反馈 / 加载态）
+   ========================================================================== */
+
+.tank-canvas.is-aiming {
+  cursor: none;
+}
+
+/* 暗角：压住四角、把视线收进画面中心 */
+.tank-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(120% 90% at 50% 46%, transparent 48%, rgba(3, 6, 10, 0.55) 100%),
+    linear-gradient(180deg, rgba(3, 6, 10, 0.42) 0%, transparent 14%, transparent 82%, rgba(3, 6, 10, 0.5) 100%);
+}
+
+/* 自定义准星：跟随鼠标，屏幕混合模式保证在亮/暗背景都清晰 */
+.tank-crosshair {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 2px;
+  height: 2px;
+  margin-left: -1px;
+  margin-top: -1px;
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.tank-crosshair-dot {
+  position: absolute;
+  left: -2.5px;
+  top: -2.5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #ffe6b8;
+  box-shadow: 0 0 10px rgba(255, 200, 120, 0.85);
+}
+
+.tank-crosshair-line {
+  position: absolute;
+  background: rgba(255, 236, 200, 0.8);
+  box-shadow: 0 0 6px rgba(255, 200, 120, 0.55);
+}
+
+.tank-crosshair-line.is-up {
+  left: -1px;
+  top: -17px;
+  width: 2px;
+  height: 9px;
+}
+.tank-crosshair-line.is-down {
+  left: -1px;
+  top: 8px;
+  width: 2px;
+  height: 9px;
+}
+.tank-crosshair-line.is-left {
+  left: -17px;
+  top: -1px;
+  width: 9px;
+  height: 2px;
+}
+.tank-crosshair-line.is-right {
+  left: 8px;
+  top: -1px;
+  width: 9px;
+  height: 2px;
+}
+
+/* 受击红闪：key 变化时重放 420ms */
+.tank-hit-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: radial-gradient(115% 95% at 50% 50%, transparent 42%, rgba(214, 42, 30, 0.55) 100%);
+  animation: tank-hit-flash 0.42s ease-out forwards;
+}
+
+@keyframes tank-hit-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 低血量：缓慢呼吸的红色边缘 */
+.tank-hud.is-low-hp::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  box-shadow: inset 0 0 130px rgba(220, 52, 38, 0.4);
+  animation: tank-low-hp 1.6s ease-in-out infinite;
+}
+
+@keyframes tank-low-hp {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+/* 加载态 */
+.tank-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  background: rgba(5, 9, 13, 0.55);
+  backdrop-filter: blur(4px);
+}
+
+/* 顶部信息条：更像游戏 HUD 的玻璃质感 */
+.tank-hud-room,
+.tank-hud-timer,
+.tank-scoreboard,
+.tank-hud-bottom-left,
+.tank-hud-bottom-right,
+.tank-feed-item,
+.tank-badge {
+  background: linear-gradient(160deg, rgba(14, 22, 30, 0.86), rgba(6, 10, 14, 0.74));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 18px 40px -26px rgba(0, 0, 0, 0.95),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px) saturate(1.15);
+}
+
+.tank-hud-timer {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.tank-hud-timer-label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.tank-score-row {
+  position: relative;
+  padding-left: 14px;
+  overflow: hidden;
+}
+
+.tank-score-bar {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 999px;
+  box-shadow: 0 0 10px currentColor;
+}
+
+.tank-score-row.is-me {
+  background: linear-gradient(90deg, rgba(233, 180, 95, 0.18), rgba(233, 180, 95, 0.04));
+}
+
+.tank-hp-warning {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  color: #ff9c86;
+  animation: tank-warn-blink 1.1s steps(2, end) infinite;
+}
+
+@keyframes tank-warn-blink {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* 低血量时血条本身发光 */
+.tank-hp-fill.is-critical {
+  box-shadow: 0 0 12px rgba(255, 96, 72, 0.8);
+}
+
+/* 结算浮层更厚实 */
+.tank-result {
+  background: linear-gradient(165deg, rgba(20, 29, 39, 0.96), rgba(8, 12, 18, 0.94));
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 40px 90px -40px rgba(0, 0, 0, 1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.tank-result-title {
+  background: linear-gradient(90deg, #ffe2ab, #e9b45f 55%, #b8371f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
+}
+
+/* 音效开关关闭态 */
+.tank-hud-btn.is-off {
+  color: var(--text-dim);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+
+/* 电脑数量步进器（任意 1–7 台） */
+.bot-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+}
+
+.bot-stepper-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.bot-stepper-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  background: rgba(233, 180, 95, 0.14);
+}
+
+.bot-stepper-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.bot-stepper-value {
+  min-width: 72px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent-strong);
+  letter-spacing: 0.04em;
+}
+
+.bot-stepper-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* HUD 按钮激活态（街机操作等） */
+.tank-hud-btn.is-on {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+
+/* ==========================================================================
+   坦克大战 · 全画布沉浸模式与鼠标锁定提示
+   ========================================================================== */
+
+body.tank-immersive {
+  overflow: hidden;
+}
+
+body.tank-immersive .app-header,
+body.tank-immersive .app-footer {
+  display: none;
+}
+
+body.tank-immersive .app-shell {
+  max-width: none;
+  min-height: 100dvh;
+  padding: 0;
+  gap: 0;
+}
+
+body.tank-immersive .tank-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  height: 100dvh;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.tank-lock-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 104px;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 20px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  background: rgba(8, 13, 19, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 18px 40px -22px rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  pointer-events: auto;
+  animation: tank-lock-pulse 2.2s ease-in-out infinite;
+}
+
+.tank-lock-hint:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.tank-lock-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px rgba(233, 180, 95, 0.8);
+}
+
+@keyframes tank-lock-pulse {
+  0%,
+  100% {
+    opacity: 0.84;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* 沉浸模式下 HUD 底部留白按窗口高度自适应 */
+body.tank-immersive .tank-hud-bottom-left,
+body.tank-immersive .tank-hud-bottom-right {
+  bottom: 20px;
+}
+
+
+
+
+
+.tank-aim-line line {
+  stroke: rgba(255, 172, 150, 0.6);
+  stroke-width: 1.6;
+  stroke-dasharray: 10 8;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px rgba(255, 120, 90, 0.55));
+  transition: opacity 0.12s linear;
+}
+
+
+/* 受击屏震与掉血数字 */
+.tank-stage.is-hit-shake .tank-canvas {
+  animation: tank-hit-shake 0.22s ease-out;
+}
+
+@keyframes tank-hit-shake {
+  0% { transform: translate3d(0, 0, 0) scale(1.01); }
+  20% { transform: translate3d(-5px, 3px, 0) scale(1.015); }
+  40% { transform: translate3d(5px, -3px, 0) scale(1.015); }
+  60% { transform: translate3d(-4px, -2px, 0) scale(1.012); }
+  80% { transform: translate3d(3px, 2px, 0) scale(1.008); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+.tank-damage-popup {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  font-family: var(--font-mono);
+  font-size: 40px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #ffd2c4;
+  text-shadow:
+    0 0 18px rgba(255, 84, 48, 0.9),
+    0 2px 0 rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: tank-damage-rise 0.75s ease-out forwards;
+}
+
+@keyframes tank-damage-rise {
+  0% { opacity: 0; transform: translate(-50%, -30%) scale(0.85); }
+  18% { opacity: 1; transform: translate(-50%, -55%) scale(1.12); }
+  70% { opacity: 1; transform: translate(-50%, -75%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -95%) scale(0.95); }
+}

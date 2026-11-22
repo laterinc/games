@@ -30,7 +30,12 @@ interface LobbyProps {
     color: CreateColor;
     boardSize?: number;
   }) => void;
-  onAiGame: (color: CreateColor, boardSize?: number) => void;
+  onAiGame: (
+    color: CreateColor,
+    boardSize?: number,
+    botCount?: number,
+    botDifficulty?: 'easy' | 'normal' | 'hard',
+  ) => void;
   records: MatchRecord[];
   onJoinRoom: (roomId: string) => void;
   onWatchRoom: (roomId: string) => void;
@@ -172,20 +177,22 @@ export function Lobby({
 }: LobbyProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
-  const [aiColor, setAiColor] = useState<CreateColor>(gameType === 'chess' ? 'red' : 'black');
+  const [aiColor, setAiColor] = useState<CreateColor>(gameType === 'gomoku' ? 'black' : 'red');
   const [roomName, setRoomName] = useState('');
   const [visibility, setVisibility] = useState<RoomVisibility>('public');
-  const [color, setColor] = useState<CreateColor>(gameType === 'chess' ? 'red' : 'black');
+  const [color, setColor] = useState<CreateColor>(gameType === 'gomoku' ? 'black' : 'red');
   const [joinCode, setJoinCode] = useState(initialRoomCode);
   const [joinError, setJoinError] = useState('');
   const [boardSize, setBoardSize] = useState<number>(DEFAULT_GOMOKU_SIZE);
+  const [botCount, setBotCount] = useState(3);
+  const [botDifficulty, setBotDifficulty] = useState<'easy' | 'normal' | 'hard'>('easy');
 
   useEffect(() => {
     if (initialRoomCode) setJoinCode(initialRoomCode);
   }, [initialRoomCode]);
 
   useEffect(() => {
-    const defaultColor: CreateColor = gameType === 'chess' ? 'red' : 'black';
+    const defaultColor: CreateColor = gameType === 'gomoku' ? 'black' : 'red';
     setColor(defaultColor);
     setAiColor(defaultColor);
     setBoardSize(DEFAULT_GOMOKU_SIZE);
@@ -204,6 +211,7 @@ export function Lobby({
   const visibleRooms = rooms.filter((room) => room.gameType === gameType);
   const meta = GAMES[gameType];
   const options = meta.colorOptions;
+  const isRealtime = meta.mode === 'realtime';
 
   const handleQuickMatch = (): void => {
     if (!canStart) return;
@@ -227,7 +235,12 @@ export function Lobby({
 
   const handleAiStart = (): void => {
     if (!canStart) return;
-    onAiGame(aiColor, gameType === 'gomoku' ? boardSize : undefined);
+    onAiGame(
+      aiColor,
+      gameType === 'gomoku' ? boardSize : undefined,
+      isRealtime ? botCount : undefined,
+      isRealtime ? botDifficulty : undefined,
+    );
     setAiOpen(false);
   };
 
@@ -315,7 +328,17 @@ export function Lobby({
         </div>
 
         <div className="hero-visual" aria-hidden="true">
-          {gameType === 'chess' ? (
+          {gameType === 'tank' ? (
+            <div className="hero-tank">
+              <span className="hero-tank-grid" />
+              <span className="hero-tank-body">
+                <span className="hero-tank-turret" />
+                <span className="hero-tank-barrel" />
+              </span>
+              <span className="hero-tank-blast" />
+              <span className="hero-mini-caption">3D 混战 · 20Hz</span>
+            </div>
+          ) : gameType === 'chess' ? (
             <div className="hero-chess">
               <span className="hero-chess-river">楚河 · 汉界</span>
               <span className="hero-chess-piece red pos-r1">帅</span>
@@ -658,6 +681,11 @@ export function Lobby({
           </div>
         </div>
 
+        {isRealtime ? (
+          <p className="action-hint">
+            坦克大战为自由混战：{meta.players}，{meta.note}
+          </p>
+        ) : (
         <div className="field">
           <span className="field-label">执子颜色</span>
           <div className="segmented segmented-three" role="group" aria-label="执子颜色">
@@ -675,6 +703,7 @@ export function Lobby({
             ))}
           </div>
         </div>
+        )}
 
         {gameType === 'gomoku' ? (
           <BoardSizeField value={boardSize} onChange={setBoardSize} />
@@ -696,30 +725,101 @@ export function Lobby({
           </>
         }
       >
-        <p className="action-hint">
-          与电脑对弈，无需等待对手；电脑执相反颜色，{gameType === 'chess' ? '红棋先行。' : '黑棋先行。'}
-        </p>
-        <div className="field">
-          <span className="field-label">执子颜色</span>
-          <div className="segmented segmented-three" role="group" aria-label="人机对战执子颜色">
-            {options.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                className={`segmented-item${aiColor === option.value ? ' is-active' : ''}`}
-                aria-pressed={aiColor === option.value}
-                onClick={() => setAiColor(option.value)}
-              >
-                <span className={`mini-stone stone-${option.value === 'random' ? 'random' : option.value}`} aria-hidden="true" />
-                <span className="segmented-label">{option.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
+        {isRealtime ? (
+          <>
+            <p className="action-hint">
+              与电脑坦克自由混战，无需等待对手：电脑会追击、绕障、瞄准提前量并开火。先到{' '}
+              15 杀或 180 秒结束。
+            </p>
+            <div className="field">
+              <span className="field-label">电脑坦克数量</span>
+              <div className="bot-stepper" role="group" aria-label="电脑坦克数量">
+                <button
+                  type="button"
+                  className="bot-stepper-btn"
+                  onClick={() => setBotCount((count) => Math.max(1, count - 1))}
+                  disabled={botCount <= 1}
+                  aria-label="减少电脑"
+                >
+                  −
+                </button>
+                <span className="bot-stepper-value" aria-live="polite">
+                  {botCount} 台
+                </span>
+                <button
+                  type="button"
+                  className="bot-stepper-btn"
+                  onClick={() => setBotCount((count) => Math.min(7, count + 1))}
+                  disabled={botCount >= 7}
+                  aria-label="增加电脑"
+                >
+                  ＋
+                </button>
+              </div>
+              <p className="bot-stepper-hint">
+                共 {botCount + 1} 人混战：你 + {botCount} 台电脑（可选 1–7 台，最多 8 人）
+                {botCount === 1 ? ' · 单挑' : ''}
+              </p>
+            </div>
+            <div className="field">
+              <span className="field-label">电脑难度</span>
+              <div className="segmented segmented-three" role="group" aria-label="电脑难度">
+                {(
+                  [
+                    { value: 'easy', label: '简单', hint: '慢半拍，适合练手' },
+                    { value: 'normal', label: '普通', hint: '会追会瞄' },
+                    { value: 'hard', label: '困难', hint: '几乎指哪打哪' },
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`segmented-item${botDifficulty === option.value ? ' is-active' : ''}`}
+                    aria-pressed={botDifficulty === option.value}
+                    onClick={() => setBotDifficulty(option.value)}
+                  >
+                    <span className="segmented-label">{option.label}</span>
+                    <span className="segmented-hint">{option.hint}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="tank-ready-tip">
+              提示：进入对局后点击画面锁定鼠标，准星跟随鼠标移动，炮塔会自动跟瞄准星。
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="action-hint">
+              与电脑对弈，无需等待对手；电脑执相反颜色，
+              {gameType === 'chess' ? '红棋先行。' : '黑棋先行。'}
+            </p>
+            <div className="field">
+              <span className="field-label">执子颜色</span>
+              <div className="segmented segmented-three" role="group" aria-label="人机对战执子颜色">
+                {options.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`segmented-item${aiColor === option.value ? ' is-active' : ''}`}
+                    aria-pressed={aiColor === option.value}
+                    onClick={() => setAiColor(option.value)}
+                  >
+                    <span
+                      className={`mini-stone stone-${option.value === 'random' ? 'random' : option.value}`}
+                      aria-hidden="true"
+                    />
+                    <span className="segmented-label">{option.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
-        {gameType === 'gomoku' ? (
-          <BoardSizeField value={boardSize} onChange={setBoardSize} />
-        ) : null}
+            {gameType === 'gomoku' ? (
+              <BoardSizeField value={boardSize} onChange={setBoardSize} />
+            ) : null}
+          </>
+        )}
       </Modal>
     </section>
   );

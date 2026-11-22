@@ -1,7 +1,7 @@
 # 实时游戏与二进制 WebSocket 传输（v3 草案）
 
-> 状态：**编解码骨架已落地，房间 tick / 坦克玩法未接入**。当前线上协议仍是 v2（WebSocket + JSON 文本帧）。
-> 前后端 codec 与共享 golden fixture 已存在；本文其余部分是接入实时游戏时的实现约束。
+> 状态：**已接入（2026-11）**：坦克大战使用 v3 二进制帧，房间 tick 循环、能力协商、二进制收发均已落地；
+> 回合制游戏仍走 v2 JSON。具体契约见 [TANK.md](TANK.md)。
 
 ## 1. 结论先行
 
@@ -169,7 +169,7 @@ WebSocket 是**可靠、有序**的字节流：丢包会阻塞后续帧（队头
 - v3 新增能力协商：`welcome` 增加 `binary: true`、`tickRate`、`encoding: "json+binary"`。
 - 只有 `mode = realtime` 的房间使用二进制帧；控制面仍走 JSON。
 - 客户端与服务端共用 `shared/realtime-v3.fixtures.json` 黄金样例做单元测试，防止两边编码漂移。
-- 上线顺序：~~编解码与测试~~（已完成骨架）→ 能力协商 → 单个坦克原型房 → AOI/增量 → 压测与限流。
+- 上线顺序：~~编解码与测试~~ → ~~能力协商~~ → ~~单个坦克原型房~~ → AOI/增量 → 压测与限流。
 
 ## 9. 安全与可观测性
 
@@ -186,7 +186,20 @@ WebSocket 是**可靠、有序**的字节流：丢包会阻塞后续帧（队头
 
 ## 11. 当前落地状态（2026-11）
 
-已经完成、可直接复用的部分：
+已经完成：
+
+| 位置 | 内容 |
+| --- | --- |
+| `server/app/games/tank.py` | 纯模拟 TankWorld（移动/碰撞/子弹/命中/复活/胜负/地图） |
+| `server/app/realtime/engine.py` | TankSession：20Hz 固定步长 tick、输入合并与限频、关键帧编码广播、事件下发 |
+| `server/app/rooms.py` | 实时房间生命周期（2–8 人 ready 开局、离开/弃权结算、rematch、观战） |
+| `server/app/ws.py` | 同连接文本/二进制双通道、`welcome.binary/tickRate` 能力协商 |
+| `web/src/lib/socket.ts` | `onBinary` / `sendBinary` |
+| `web/src/games/tank/` | 帧解码、快照插值/外推、输入采集、three.js 场景、HUD、等待/对局/结算页面 |
+
+尚未完成（记录为后续工作）：AOI 视野裁剪、增量快照接入、客户端回滚式预测、压测与限流指标。
+
+v3 编解码与共享 golden fixture：
 
 | 位置 | 内容 |
 | --- | --- |

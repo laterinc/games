@@ -6,7 +6,7 @@
  *
  * 通用头 8 字节：u8 frameType、u8 flags、u16 seq、u32 tick（小端序）。
  * - 输入帧：u8 inputFlags、u16 aim
- * - 快照关键帧：u16 entityCount + N × 14 字节实体
+ * - 快照关键帧：u16 entityCount + N × 16 字节实体（含 hull 与 turret）
  * - 快照增量帧：u16 ackSeq、u32 baselineTick、u16 changedCount + N × (u16 id、u8 mask、变化字段)
  */
 
@@ -31,6 +31,11 @@ export const MASK_VY = 1 << 3;
 export const MASK_ANGLE = 1 << 4;
 export const MASK_HP = 1 << 5;
 export const MASK_FLAGS = 1 << 6;
+export const MASK_TURRET = 1 << 7;
+
+/** 所有已定义的增量字段 mask 之和。 */
+export const DELTA_MASK_ALL =
+  MASK_X | MASK_Y | MASK_VX | MASK_VY | MASK_ANGLE | MASK_HP | MASK_FLAGS | MASK_TURRET;
 
 export const MAX_ENTITIES = 1024;
 export const FIXED_SCALE = 100;
@@ -40,7 +45,7 @@ const HEADER_SIZE = 8;
 const INPUT_PAYLOAD_SIZE = 3;
 const KEYFRAME_HEADER_SIZE = 2;
 const DELTA_HEADER_SIZE = 8;
-const ENTITY_SIZE = 14;
+const ENTITY_SIZE = 16;
 const DELTA_ENTITY_HEADER_SIZE = 3;
 
 export interface InputFrame {
@@ -57,6 +62,7 @@ export interface EntitySnapshot {
   vx: number;
   vy: number;
   angle: number;
+  turret: number;
   hp: number;
   flags: number;
 }
@@ -75,6 +81,7 @@ export interface EntityDelta {
   vx: number | null;
   vy: number | null;
   angle: number | null;
+  turret: number | null;
   hp: number | null;
   flags: number | null;
 }
@@ -184,6 +191,7 @@ export function encodeKeyframe(frame: SnapshotKeyframe): Uint8Array {
     checkInt('vx', entity.vx, I16);
     checkInt('vy', entity.vy, I16);
     checkInt('angle', entity.angle, U16);
+    checkInt('turret', entity.turret, U16);
     checkInt('hp', entity.hp, U8);
     checkInt('flags', entity.flags, U8);
     view.setUint16(offset, entity.id, true);
@@ -192,8 +200,9 @@ export function encodeKeyframe(frame: SnapshotKeyframe): Uint8Array {
     view.setInt16(offset + 6, entity.vx, true);
     view.setInt16(offset + 8, entity.vy, true);
     view.setUint16(offset + 10, entity.angle, true);
-    view.setUint8(offset + 12, entity.hp);
-    view.setUint8(offset + 13, entity.flags);
+    view.setUint16(offset + 12, entity.turret, true);
+    view.setUint8(offset + 14, entity.hp);
+    view.setUint8(offset + 15, entity.flags);
     offset += ENTITY_SIZE;
   }
   return bytes;
@@ -222,8 +231,9 @@ export function decodeKeyframe(data: Uint8Array): SnapshotKeyframe {
       vx: view.getInt16(offset + 6, true),
       vy: view.getInt16(offset + 8, true),
       angle: view.getUint16(offset + 10, true),
-      hp: view.getUint8(offset + 12),
-      flags: view.getUint8(offset + 13),
+      turret: view.getUint16(offset + 12, true),
+      hp: view.getUint8(offset + 14),
+      flags: view.getUint8(offset + 15),
     });
     offset += ENTITY_SIZE;
   }
@@ -232,13 +242,14 @@ export function decodeKeyframe(data: Uint8Array): SnapshotKeyframe {
 
 function validateDeltaEntity(entity: EntityDelta): void {
   checkInt('id', entity.id, U16);
-  checkInt('mask', entity.mask, { min: 0, max: MASK_X | MASK_Y | MASK_VX | MASK_VY | MASK_ANGLE | MASK_HP | MASK_FLAGS });
+  checkInt('mask', entity.mask, { min: 0, max: DELTA_MASK_ALL });
   const fields: Array<[number, number | null]> = [
     [MASK_X, entity.x],
     [MASK_Y, entity.y],
     [MASK_VX, entity.vx],
     [MASK_VY, entity.vy],
     [MASK_ANGLE, entity.angle],
+    [MASK_TURRET, entity.turret],
     [MASK_HP, entity.hp],
     [MASK_FLAGS, entity.flags],
   ];
@@ -254,6 +265,7 @@ function validateDeltaEntity(entity: EntityDelta): void {
   if (entity.vx !== null) checkInt('vx', entity.vx, I16);
   if (entity.vy !== null) checkInt('vy', entity.vy, I16);
   if (entity.angle !== null) checkInt('angle', entity.angle, U16);
+  if (entity.turret !== null) checkInt('turret', entity.turret, U16);
   if (entity.hp !== null) checkInt('hp', entity.hp, U8);
   if (entity.flags !== null) checkInt('flags', entity.flags, U8);
 }
@@ -273,6 +285,7 @@ export function encodeDelta(frame: SnapshotDelta): Uint8Array {
     if (entity.mask & MASK_VX) size += 2;
     if (entity.mask & MASK_VY) size += 2;
     if (entity.mask & MASK_ANGLE) size += 2;
+    if (entity.mask & MASK_TURRET) size += 2;
     if (entity.mask & MASK_HP) size += 1;
     if (entity.mask & MASK_FLAGS) size += 1;
   }
@@ -307,6 +320,10 @@ export function encodeDelta(frame: SnapshotDelta): Uint8Array {
       view.setUint16(offset, entity.angle as number, true);
       offset += 2;
     }
+    if (entity.mask & MASK_TURRET) {
+      view.setUint16(offset, entity.turret as number, true);
+      offset += 2;
+    }
     if (entity.mask & MASK_HP) {
       view.setUint8(offset, entity.hp as number);
       offset += 1;
@@ -339,7 +356,7 @@ export function decodeDelta(data: Uint8Array): SnapshotDelta {
     const id = view.getUint16(offset, true);
     const mask = view.getUint8(offset + 2);
     offset += DELTA_ENTITY_HEADER_SIZE;
-    if ((mask & ~(MASK_X | MASK_Y | MASK_VX | MASK_VY | MASK_ANGLE | MASK_HP | MASK_FLAGS)) !== 0) {
+    if ((mask & ~DELTA_MASK_ALL) !== 0) {
       throw new Error(`未知的字段 mask：${mask}`);
     }
     const entity: EntityDelta = {
@@ -350,6 +367,7 @@ export function decodeDelta(data: Uint8Array): SnapshotDelta {
       vx: null,
       vy: null,
       angle: null,
+      turret: null,
       hp: null,
       flags: null,
     };
@@ -378,6 +396,11 @@ export function decodeDelta(data: Uint8Array): SnapshotDelta {
       entity.angle = view.getUint16(offset, true);
       offset += 2;
     }
+    if (mask & MASK_TURRET) {
+      requireBytes(data, offset, 2, 'turret');
+      entity.turret = view.getUint16(offset, true);
+      offset += 2;
+    }
     if (mask & MASK_HP) {
       requireBytes(data, offset, 1, 'hp');
       entity.hp = view.getUint8(offset);
@@ -398,6 +421,30 @@ function requireBytes(data: Uint8Array, offset: number, size: number, field: str
   if (data.byteLength < offset + size) {
     throw new Error(`增量帧被截断，缺少字段 ${field}`);
   }
+}
+
+/** 弧度 → u16（0–2π 映射 0–65535），与后端 angle_to_u16 一致。 */
+export function angleToU16(radians: number): number {
+  if (!Number.isFinite(radians)) throw new Error('角度必须是有限数值');
+  const normalized = ((radians % TAU) + TAU) % TAU;
+  return Math.round((normalized / TAU) * 0xffff) & 0xffff;
+}
+
+/** u16 → 弧度，与后端 u16_to_angle 一致。 */
+export function u16ToAngle(value: number): number {
+  checkInt('angle', value, U16);
+  return (value / 0xffff) * TAU;
+}
+
+/** 世界单位 → 0.01 定点（范围由调用方保证）。 */
+export function toFixed(value: number): number {
+  if (!Number.isFinite(value)) throw new Error('坐标必须是有限数值');
+  return Math.round(value * FIXED_SCALE);
+}
+
+/** 0.01 定点 → 世界单位。 */
+export function fromFixed(raw: number): number {
+  return raw / FIXED_SCALE;
 }
 
 export function decodeSnapshot(data: Uint8Array): SnapshotFrame {
