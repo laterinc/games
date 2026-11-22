@@ -1,14 +1,11 @@
 /**
- * 本地持久化：重连身份（playerId + token）与昵称。
- * 身份只在收到 welcome 后写入；hello 失败（AUTH_FAILED）时清空。
+ * 本地持久化：浏览器身份 UUID 与昵称。
+ *
+ * 首次访问时由服务端生成 UUID，前端收到 welcome 后写入 localStorage 永久保存；
+ * 之后每次连接都通过 WebSocket 的 ?uid=<uuid> 带回，服务端不再生成新身份。
  */
 
-export interface StoredSession {
-  playerId: string;
-  token: string;
-}
-
-const SESSION_KEY = 'games.session.v1';
+const UID_KEY = 'games.uid.v1';
 const NICKNAME_KEY = 'games.nickname.v1';
 
 const NICKNAME_PREFIXES = ['棋友', '弈客', '棋童', '黑白君', '落子翁', '观棋人'];
@@ -37,29 +34,18 @@ function safeRemove(key: string): void {
   }
 }
 
-export function loadSession(): StoredSession | null {
-  const raw = safeGet(SESSION_KEY);
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    const record = parsed as Record<string, unknown>;
-    const playerId = record.playerId;
-    const token = record.token;
-    if (typeof playerId !== 'string' || !playerId) return null;
-    if (typeof token !== 'string' || !token) return null;
-    return { playerId, token };
-  } catch {
-    return null;
-  }
+export function loadUid(): string | null {
+  const value = (safeGet(UID_KEY) ?? '').trim();
+  return value || null;
 }
 
-export function saveSession(session: StoredSession): void {
-  safeSet(SESSION_KEY, JSON.stringify(session));
+export function saveUid(uid: string): void {
+  const trimmed = uid.trim();
+  if (trimmed) safeSet(UID_KEY, trimmed);
 }
 
-export function clearSession(): void {
-  safeRemove(SESSION_KEY);
+export function clearUid(): void {
+  safeRemove(UID_KEY);
 }
 
 export function loadNickname(): string {

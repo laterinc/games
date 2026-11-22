@@ -40,11 +40,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-#: 身份 Cookie：保存 playerId.token，浏览器刷新/重开时用于恢复同一玩家
-_SESSION_COOKIE = "games_session"
-_COOKIE_MAX_AGE = 30 * 24 * 3600
-
-
 class ClientConnection:
     """单条 WS 连接：一把发送锁保证串行写，并维护 5s/40 条限流窗口。"""
 
@@ -140,33 +135,10 @@ class ConnectionHub:
         return sum(len(connections) for connections in self._connections.values())
 
 
-def _cookie_is_secure(websocket: WebSocket) -> bool:
-    forwarded = websocket.headers.get("x-forwarded-proto", "")
-    if forwarded.split(",")[0].strip().lower() == "https":
-        return True
-    return websocket.url.scheme == "wss"
-
-
-def _session_cookie_header(websocket: WebSocket, value: str) -> bytes:
-    parts = [
-        f"{_SESSION_COOKIE}={value}",
-        "Path=/",
-        "HttpOnly",
-        f"Max-Age={_COOKIE_MAX_AGE}",
-    ]
-    if _cookie_is_secure(websocket):
-        # 跨站点（前端与后端不同域）且 HTTPS 时才能用 SameSite=None
-        parts.extend(["Secure", "SameSite=None"])
-    else:
-        parts.append("SameSite=Lax")
-    return "; ".join(parts).encode("latin-1")
-
-
 def _welcome_message(player: Player, *, reconnected: bool) -> dict[str, Any]:
     return {
         "type": "welcome",
         "playerId": player.id,
-        "token": player.token,
         "reconnected": reconnected,
         "serverTime": now_ms(),
         "protocolVersion": PROTOCOL_VERSION,
@@ -214,9 +186,7 @@ class MessageDispatcher:
 
     async def _dispatch(self, connection: ClientConnection, payload: dict[str, Any]) -> None:
         msg_type = payload["type"]
-        if msg_type == "hello":
-            await self._handle_hello(connection, payload)
-        elif msg_type == "ping":
+        if msg_type == "ping":
             await connection.send({"type": "pong", "t": now_ms()})
         elif msg_type == "list_rooms":
             game_type = optional_str(payload, "gameType", "") or None
@@ -252,27 +222,6 @@ class MessageDispatcher:
             await self._manager.chat(connection.player_id, text=text)
         else:
             raise ProtocolError(ErrorCode.UNKNOWN_TYPE)
-
-    async def _handle_hello(self, connection: ClientConnection, payload: dict[str, Any]) -> None:
-        player_id = require_str(payload, "playerId")
-        token = require_str(payload, "token")
-        player = self._manager.authenticate(player_id, token)
-        if player is None:
-            raise ProtocolError(ErrorCode.AUTH_FAILED)
-
-        previous_player_id = connection.player_id
-        self._hub.rebind(connection, player.id)
-        if previous_player_id != player.id:
-            self._manager.discard_player(previous_player_id)
-
-        await self._manager.mark_connected(player.id)
-        await connection.send(_welcome_message(player, reconnected=True))
-        await connection.send(
-            {"type": "records", "records": self._manager.player_records(player.id)}
-        )
-        room = self._manager.room_snapshot_for(player.id)
-        if room is not None:
-            await connection.send({"type": "room", "room": room})
 
     async def _handle_create_room(
         self, connection: ClientConnection, payload: dict[str, Any]
@@ -350,27 +299,24 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         await websocket.close(code=1008)
         return
 
-    # 优先用握手 Cookie 恢复身份：刷新页面/重开浏览器时即使 localStorage 丢了，
-    # 也能认回同一个 player（房间座位、昵称、token 都不变）。失败则分配新匿名身份。
-    restored = manager.authenticate_cookie(websocket.cookies.get(_SESSION_COOKIE))
-    player = restored or manager.create_player()
-    cookie_header = _session_cookie_header(websocket, manager.session_cookie_value(player))
-    await websocket.accept(headers=[(b"set-cookie", cookie_header)])
+    # 身份由前端 localStorage 里的 UUID 决定：连接时通过 ?uid=<uuid> 带回。
+    # 首次访问（没有 uid）时服务端生成 UUID v4，并通过 welcome 下发给前端保存。
+    # 浏览器刷新 / 重开 / 多标签页只要带着同一个 UUID，就能认回同一玩家与房间座位。
+    player, restored = manager.player_for_uid(websocket.query_params.get("uid"))
+    await websocket.accept()
 
     connection = ClientConnection(websocket, player.id)
     hub.rebind(connection, player.id)
 
     try:
-        if restored is not None:
-            await manager.mark_connected(player.id)
-        await connection.send(_welcome_message(player, reconnected=restored is not None))
+        await manager.mark_connected(player.id)
+        await connection.send(_welcome_message(player, reconnected=restored))
         await connection.send(
             {"type": "records", "records": manager.player_records(player.id)}
         )
-        if restored is not None:
-            room = manager.room_snapshot_for(player.id)
-            if room is not None:
-                await connection.send({"type": "room", "room": room})
+        room = manager.room_snapshot_for(player.id)
+        if room is not None:
+            await connection.send({"type": "room", "room": room})
         dispatcher = MessageDispatcher(manager, hub)
         while True:
             try:

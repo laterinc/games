@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from typing import Any
 
 import pytest
@@ -745,15 +746,32 @@ def test_chat_requires_room() -> None:
     asyncio.run(scenario())
 
 
-def test_player_identity_and_auth() -> None:
+def test_player_identity_by_uuid() -> None:
     async def scenario() -> None:
         hub, manager = await _setup()
+
+        # 服务端自动生成 UUID v4
         player = manager.create_player()
-        assert player.id.startswith("p_")
-        assert player.token.startswith("t_")
-        assert manager.authenticate(player.id, player.token) is player
-        assert manager.authenticate(player.id, "wrong") is None
-        assert manager.authenticate("p_missing", player.token) is None
+        assert uuid.UUID(player.id).version == 4
+
+        # 已存在的 UUID：返回原身份
+        again, restored = manager.player_for_uid(player.id)
+        assert again is player
+        assert restored is True
+
+        # 前端提供合法但服务端未见过的 UUID：直接采用，不生成新身份
+        client_uid = str(uuid.uuid4())
+        adopt, restored = manager.player_for_uid(client_uid)
+        assert adopt.id == client_uid
+        assert restored is False
+
+        # 未提供或非法 UUID：生成新身份
+        fresh, restored = manager.player_for_uid(None)
+        assert uuid.UUID(fresh.id).version == 4
+        assert restored is False
+        fallback, _ = manager.player_for_uid("p_deadbeef")
+        assert fallback.id != "p_deadbeef"
+        assert uuid.UUID(fallback.id).version == 4
 
     asyncio.run(scenario())
 

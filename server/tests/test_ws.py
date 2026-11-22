@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import replace
 from typing import Any
 
@@ -15,7 +16,6 @@ from app.protocol import PROTOCOL_VERSION
 WELCOME_KEYS = {
     "type",
     "playerId",
-    "token",
     "reconnected",
     "serverTime",
     "protocolVersion",
@@ -25,14 +25,15 @@ WELCOME_KEYS = {
 }
 
 
-def _welcome(ws, *, reconnected: bool = False) -> dict[str, Any]:
+def _welcome(ws, *, reconnected: bool | None = None) -> dict[str, Any]:
     message = ws.receive_json()
     assert message["type"] == "welcome", message
     assert set(message) == WELCOME_KEYS
-    assert message["reconnected"] is reconnected
+    if reconnected is not None:
+        assert message["reconnected"] is reconnected
     assert message["protocolVersion"] == PROTOCOL_VERSION
-    assert message["playerId"].startswith("p_")
-    assert message["token"].startswith("t_")
+    # 身份是标准 UUID v4（首次访问由服务端生成）
+    assert uuid.UUID(message["playerId"]).version == 4
     assert isinstance(message["serverTime"], int)
     assert message["binary"] is True
     assert message["tickRate"] == 20
@@ -321,25 +322,19 @@ def test_room_errors_and_turn_validation() -> None:
             assert a_welcome["playerId"] != b_welcome["playerId"]
 
 
-def test_hello_reconnect_restores_room() -> None:
+def test_uid_query_reconnect_restores_room() -> None:
+    """前端用 localStorage 里的 UUID 重连：认回同一玩家与房间座位。"""
     app = create_app()
     with TestClient(app) as client:
         with client.websocket_connect("/ws") as first:
-            welcome = _welcome(first)
+            welcome = _welcome(first, reconnected=False)
             room = _create_room(first, name="小明", roomName="重连测试")
             player_id = welcome["playerId"]
-            token = welcome["token"]
 
-        with client.websocket_connect("/ws") as second:
-            fresh = _welcome(second)
-            assert fresh["playerId"] != player_id
-            second.send_json({"type": "hello", "playerId": player_id, "token": token})
-            recovered = _read_type(second, "welcome")
-            assert recovered["reconnected"] is True
+        with client.websocket_connect(f"/ws?uid={player_id}") as second:
+            recovered = _welcome(second, reconnected=True)
             assert recovered["playerId"] == player_id
-            assert recovered["token"] == token
             assert recovered["protocolVersion"] == PROTOCOL_VERSION
-            assert _read_type(second, "records")["type"] == "records"
 
             snapshot = _read_room(second)
             assert snapshot["id"] == room["id"]
@@ -356,16 +351,19 @@ def test_hello_reconnect_restores_room() -> None:
             assert _read_type(second, "room")["room"] is None
 
 
-def test_hello_bad_token_keeps_current_identity() -> None:
+def test_client_supplied_uid_is_adopted() -> None:
+    """前端主动提供 UUID 时服务端直接采用，不再生成新身份。"""
+    client_uid = str(uuid.uuid4())
     with TestClient(create_app()) as client:
-        with client.websocket_connect("/ws") as ws:
-            welcome = _welcome(ws)
-            ws.send_json({"type": "hello", "playerId": "p_deadbeef", "token": "t_wrong"})
-            _read_error(ws, "AUTH_FAILED")
+        with client.websocket_connect(f"/ws?uid={client_uid}") as ws:
+            welcome = _welcome(ws, reconnected=False)
+            assert welcome["playerId"] == client_uid
 
-            # 失败后保持当前全新身份，可正常创建房间
-            room = _create_room(ws, name="新玩家")
-            assert room["hostId"] == welcome["playerId"]
+        # 非法 UUID 不受信任：生成新的合法身份
+        with client.websocket_connect("/ws?uid=not-a-uuid") as ws:
+            fresh = _welcome(ws, reconnected=False)
+            assert fresh["playerId"] != "not-a-uuid"
+            assert uuid.UUID(fresh["playerId"]).version == 4
 
 
 def test_lobby_push_list_pull_and_rest() -> None:
@@ -682,24 +680,20 @@ def test_spectator_cannot_watch_while_seated() -> None:
             _read_error(a, "ALREADY_IN_ROOM")
 
 
-def test_handshake_cookie_restores_player() -> None:
-    """浏览器 Cookie 恢复身份：刷新/重开时即使 localStorage 丢失也能认回同一玩家。"""
+def test_uid_query_restores_player() -> None:
+    """刷新/重开浏览器时凭 localStorage 里的 UUID 认回同一玩家。"""
     app = create_app()
     with TestClient(app) as client:
         with client.websocket_connect("/ws") as ws:
-            welcome = _welcome(ws)
-        cookie = f"games_session={welcome['playerId']}.{welcome['token']}"
-        with client.websocket_connect("/ws", headers={"cookie": cookie}) as ws:
+            welcome = _welcome(ws, reconnected=False)
+        with client.websocket_connect(f"/ws?uid={welcome['playerId']}") as ws:
             again = _welcome(ws, reconnected=True)
             assert again["playerId"] == welcome["playerId"]
 
-        # 非法 Cookie：分配新身份，不报错
-        with client.websocket_connect(
-            "/ws", headers={"cookie": "games_session=p_deadbeef.bad-token"}
-        ) as ws:
-            fresh = _welcome(ws)
+        # 未提供 UUID：分配新身份，不报错
+        with client.websocket_connect("/ws") as ws:
+            fresh = _welcome(ws, reconnected=False)
             assert fresh["playerId"] != welcome["playerId"]
-            assert fresh["reconnected"] is False
 
 
 def test_multiple_tabs_same_player_do_not_kick_each_other() -> None:
@@ -708,9 +702,8 @@ def test_multiple_tabs_same_player_do_not_kick_each_other() -> None:
     with TestClient(app) as client:
         with client.websocket_connect("/ws") as tab1:
             first = _welcome(tab1)
-            cookie = f"games_session={first['playerId']}.{first['token']}"
 
-            with client.websocket_connect("/ws", headers={"cookie": cookie}) as tab2:
+            with client.websocket_connect(f"/ws?uid={first['playerId']}") as tab2:
                 second = _welcome(tab2, reconnected=True)
                 assert second["playerId"] == first["playerId"]
 

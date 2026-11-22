@@ -2,7 +2,8 @@
  * WebSocket 客户端（协议 v1）。
  *
  * - 同源 /ws，可用 VITE_WS_URL 覆盖（绝对 ws(s):// 或路径）。
- * - welcome 后持久化 playerId + token；重连先发 hello 恢复身份与所在房间。
+ * - 身份是 localStorage 里的 UUID：首次由服务端在 welcome 中下发，
+ *   之后连接时通过 ?uid=<uuid> 带回，刷新/重开浏览器都能认回同一玩家。
  * - 自动重连：指数退避 0.5s → 1s → 2s → 4s → 8s → 10s（封顶）。
  * - 每 20s 发送 ping；页面卸载时关闭连接。
  * - 对外暴露 send / onMessage / onBinary / status。
@@ -11,7 +12,7 @@
  */
 import type { ClientMessage, ServerMessage } from '../types';
 import { parseServerMessage } from './protocol';
-import { clearSession, loadSession, saveSession } from './session';
+import { loadUid, saveUid } from './session';
 
 export type SocketStatus = 'connecting' | 'open' | 'reconnecting' | 'closed' | 'replaced';
 
@@ -91,11 +92,7 @@ export class GameSocket {
   private manualClose = true;
   private greeted = false;
   private hadConnection = false;
-  private lastWelcome: { playerId: string; token: string } | null = null;
   private pending: ClientMessage[] = [];
-  /** 本次连接是否带 session 发起 hello：等待 hello 结果后再补发排队消息。 */
-  private expectingHello = false;
-  private flushTimer: number | null = null;
   private readonly unloadHandler = (): void => {
     this.shutdown();
   };
@@ -195,6 +192,20 @@ export class GameSocket {
 
   /* ------------------------------ 内部实现 ------------------------------ */
 
+  /** 把已保存的 UUID 拼到 WS 地址上；没有 UUID 时交给服务端生成。 */
+  private endpoint(): string {
+    const uid = loadUid();
+    if (!uid) return this.url;
+    try {
+      const url = new URL(this.url);
+      url.searchParams.set('uid', uid);
+      return url.toString();
+    } catch {
+      const separator = this.url.includes('?') ? '&' : '?';
+      return `${this.url}${separator}uid=${encodeURIComponent(uid)}`;
+    }
+  }
+
   private canSend(): boolean {
     return (
       this.greeted &&
@@ -219,7 +230,7 @@ export class GameSocket {
 
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.url);
+      socket = new WebSocket(this.endpoint());
     } catch {
       this.scheduleReconnect();
       return;
@@ -227,14 +238,9 @@ export class GameSocket {
     this.socket = socket;
     socket.binaryType = 'arraybuffer';
     this.greeted = false;
-    this.lastWelcome = null;
 
     socket.onopen = () => {
-      const session = loadSession();
-      this.expectingHello = session !== null;
-      if (session) {
-        this.rawSend({ type: 'hello', playerId: session.playerId, token: session.token });
-      }
+      /* 身份已经通过 ?uid= 带在 URL 上，等 welcome 即可。 */
     };
     socket.onmessage = (event: MessageEvent<unknown>) => {
       if (typeof event.data === 'string') {
@@ -251,8 +257,6 @@ export class GameSocket {
       if (this.socket !== socket) return;
       this.socket = null;
       this.greeted = false;
-      this.expectingHello = false;
-      this.clearFlushTimer();
       this.stopPing();
       if (this.manualClose) {
         this.setStatus('closed');
@@ -279,54 +283,16 @@ export class GameSocket {
     if (message.type === 'welcome') {
       this.hadConnection = true;
       this.attempts = 0;
-      this.lastWelcome = { playerId: message.playerId, token: message.token };
-      // 重连握手期间先收到的是服务端新分配的匿名身份；在 hello 结果回来前不能落盘，
-      // 否则握手窗口内断线会把原 session 覆盖成匿名身份、彻底丢失座位。
-      if (!this.expectingHello || message.reconnected) {
-        saveSession(this.lastWelcome);
-      }
+      // 服务端首次生成或规范化后的 UUID 立即落盘，之后重连一直使用它。
+      saveUid(message.playerId);
       this.greeted = true;
       this.setStatus('open');
       this.startPing();
-      if (!this.expectingHello || message.reconnected) {
-        // 没有 session，或 hello 已成功恢复身份：可以安全补发排队消息。
-        this.expectingHello = false;
-        this.clearFlushTimer();
-        this.flushPending();
-      } else {
-        // 先到的是全新身份 welcome，等 hello 结果（正常情况下紧跟一条 reconnected=true）。
-        this.scheduleFlushFallback();
-      }
-    } else if (message.type === 'error' && message.code === 'AUTH_FAILED') {
-      // 服务端保持当前全新身份不变：保留本连接收到的 welcome 身份，否则清空。
-      if (this.lastWelcome) {
-        saveSession(this.lastWelcome);
-      } else {
-        clearSession();
-      }
-      this.expectingHello = false;
-      this.clearFlushTimer();
       this.flushPending();
     }
 
     for (const listener of this.messageListeners) {
       listener(message);
-    }
-  }
-
-  private scheduleFlushFallback(): void {
-    if (this.flushTimer !== null) return;
-    this.flushTimer = window.setTimeout(() => {
-      this.flushTimer = null;
-      this.expectingHello = false;
-      this.flushPending();
-    }, 800);
-  }
-
-  private clearFlushTimer(): void {
-    if (this.flushTimer !== null) {
-      window.clearTimeout(this.flushTimer);
-      this.flushTimer = null;
     }
   }
 
@@ -383,7 +349,6 @@ export class GameSocket {
   private shutdown(): void {
     this.manualClose = true;
     this.clearReconnectTimer();
-    this.clearFlushTimer();
     this.stopPing();
     this.pending = [];
     this.greeted = false;

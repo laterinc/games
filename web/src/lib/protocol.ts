@@ -524,12 +524,10 @@ export function parseServerMessage(data: string): ServerMessage | null {
   switch (type) {
     case 'welcome': {
       const playerId = asString(parsed.playerId);
-      const token = asString(parsed.token);
-      if (!playerId || !token) return null;
+      if (!playerId) return null;
       return {
         type: 'welcome',
         playerId,
-        token,
         reconnected: asBoolean(parsed.reconnected, false),
         serverTime: asNumber(parsed.serverTime, Date.now()),
         protocolVersion: asNumber(parsed.protocolVersion, 1),
@@ -605,5 +603,4 @@ export const ERROR_CODE_LABEL: Record<string, string> = {
   INVALID_MOVE: '坐标无效或该点已有棋子',
   GAME_NOT_ACTIVE: '当前不在对局中',
   RATE_LIMITED: '操作过于频繁，请稍后再试',
-  AUTH_FAILED: '身份校验失败，已切换为新身份',
 };

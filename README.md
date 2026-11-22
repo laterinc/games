@@ -17,7 +17,7 @@
 | 游戏 | 五子棋（15×15，五连获胜）；中国象棋（9×10，将死/困毙获胜）；坦克大战（2–8 人实时 3D 自由混战，20Hz 服务端权威，见 [实现契约](docs/TANK.md)） |
 | 联机 | 快速匹配、公开/私密房间、房间码与邀请链接、双方准备开局、观战（最多 20 人） |
 | 房间设置 | 五子棋可选 9/11/13/15/17/19 路棋盘（手机小棋盘更快），人机与再来一局沿用 |
-| 身份 | HttpOnly `games_session` Cookie（`playerId.token`，30 天）+ localStorage token；刷新/重开浏览器/换标签页可恢复座位 |
+| 身份 | 浏览器 localStorage 中的 UUID（首次访问由服务端生成，永不过期）；刷新/重开浏览器/换标签页可凭同一 UUID 恢复座位 |
 | 对局 | 服务端走子校验、悔棋请求/回应、认输、再来一局（自动交换先后手）、断线宽限与弃权结算 |
 | 玩法 | 内置电脑对手：五子棋启发式 AI；中国象棋 alpha-beta 搜索 AI；坦克大战 AI 电脑坦克（追击、绕障、提前量瞄准、按距离开火，可选 1–7 台 + 简单/普通/困难三档难度） |
 | 体验 | 五子棋乐观落子 + 落子动画、涟漪、胜利连线；象棋选中/合法落点高亮、将军提示、上一步标记 |
@@ -88,7 +88,7 @@ games/
 ├── server/
 │   ├── app/
 │   │   ├── main.py          # FastAPI：/api/health、/api/rooms、/api/config + WS
-│   │   ├── ws.py            # WebSocket 接入、Cookie 身份、消息分发
+│   │   ├── ws.py            # WebSocket 接入、UUID 身份、消息分发
 │   │   ├── rooms.py         # 游戏无关的房间生命周期 / 悔棋 / 认输 / AI / 战绩
 │   │   ├── games/
 │   │   │   ├── base.py      # GameRules 插件接口
@@ -261,13 +261,34 @@ cd web
 npm run deploy        # = npm run build && wrangler deploy，上传的是 dist/
 ```
 
+#### Cloudflare 构建配置（Workers Builds / Pages）
+
+仓库里 **`web/dist` 是构建产物、不进 git**（`web/.gitignore` 里忽略），所以 CI 必须先构建再 deploy。
+如果 CI 日志出现：
+
+```
+✘ [ERROR] The directory specified by the "assets.directory" field ... does not exist:
+  /opt/buildhome/repo/web/dist
+```
+
+说明只执行了 `npx wrangler deploy`、没有执行构建。在 Cloudflare 项目 → Settings → Build 里按下表配置（二选一）：
+
+| 配置项 | 方案 A（推荐） | 方案 B |
+| --- | --- | --- |
+| Root directory | `web` | `web` |
+| Build command | `npm run build` | *(留空)* |
+| Deploy command | `npx wrangler deploy` | `npm run deploy` |
+
+方案 B 的 `npm run deploy` 自带构建（`= npm run build && wrangler deploy`），即使 Build command 留空也不会缺 `dist/`。
+无论哪种，构建产物都必须在 wrangler 之前生成；本地手动部署同样用 `npm run deploy`。
+
 > ⚠️ 不要直接把 `web/` 源码目录当静态资源上传：HTML 里的 `/src/main.tsx` 没有 MIME，
 > 浏览器会报 “Expected a JavaScript-or-Wasm module script…”，页面纯黑。
 > 若前端改部署到子路径（如 `https://cloudflare.org.cn/games/`），构建时设 `VITE_BASE_PATH=/games/` 并重新构建。
 
 ### 前后端分域部署
 
-同域部署无需 CORS；分域时配置后端 `CORS_ORIGINS=https://your-frontend.example.com`（当前前端是 `https://games.later.design`，后端是 `https://cloudflare.org.cn/games`，需要把前者加入 CORS），前端通过 `VITE_API_BASE` / `VITE_WS_URL` 指到后端域名。`games_session` Cookie 的 `SameSite=Lax`，跨站场景需要放到同一站点下或改用 token 认证。
+同域部署无需 CORS；分域时配置后端 `CORS_ORIGINS=https://your-frontend.example.com`（当前前端是 `https://games.later.design`，后端是 `https://cloudflare.org.cn/games`，需要把前者加入 CORS），前端通过 `VITE_API_BASE` / `VITE_WS_URL` 指到后端域名。身份保存在前端 localStorage 的 UUID 中，不依赖 Cookie，因此前后端跨域部署不受第三方 Cookie 限制；后端需在 `ALLOWED_ORIGINS` 中放行前端域名。
 
 ## 环境变量
 
@@ -313,7 +334,7 @@ cd web && npm run dev          # 或 npm run build && npm run preview
 /tmp/pwenv/bin/python scripts/ui_smoke.py --url http://127.0.0.1:5173
 ```
 
-覆盖：五子棋建房/邀请/准备/五连/再来一局/聊天/观战/刷新与 Cookie 恢复，以及中国象棋游戏切换/人机开局/红兵前进/电脑应手。
+覆盖：五子棋建房/邀请/准备/五连/再来一局/聊天/观战/刷新与 UUID 身份恢复，以及中国象棋游戏切换/人机开局/红兵前进/电脑应手。
 
 坦克大战 3D 冒烟（同样可选）：
 
@@ -342,7 +363,7 @@ cd web && npm run dev
 - **五子棋**：15×15 棋盘，黑白轮流，横/竖/斜先成五者胜；悔棋 AI 自动同意并回退双方最近两步。
 - **中国象棋**：完整走子规则（马腿、象眼、炮架、九宫、过河兵、将帅照面、不能送将），将军/将死/困毙判定；AI 使用 alpha-beta + 子力评估（带时间/节点上限）。
 - **五子棋 AI**：启发式形状评分，只搜索已有棋子附近候选点，低延迟。
-- **身份与重连**：握手时下发 `games_session` Cookie（`playerId.token`，HttpOnly、30 天），localStorage 同步 token；多标签页共享同一身份，不互踢。
+- **身份与重连**：首次连接时服务端生成 UUID v4，前端存入 localStorage（永不过期），之后每次连接通过 `?uid=<uuid>` 带回；多标签页共享同一身份，不互踢。
 - **渲染**：棋盘 Canvas 2D，静态网格离屏缓存，棋子/提示按需重绘；五子棋落子动画走 `requestAnimationFrame`，空闲停帧；象棋选中/合法点/将军/上一步全部在 Canvas 绘制。
 - **音效**：WebAudio 合成，无音频资源；`games.sound.enabled.v1` 持久化静音状态。
 - **实时游戏（坦克大战）**：服务端 `TankWorld` 纯模拟 + `TankSession` 20Hz tick（累计器补帧，单帧最多追 5 步），每 tick 编码关键帧广播；客户端只发输入意图，位置/碰撞/命中全部由服务端计算，前端按 100ms 缓冲插值 + 速度外推 + 指数平滑渲染。
@@ -366,4 +387,4 @@ cd web && npm run dev
 - 观战为只读实时快照，不支持聊天历史回放之外的复盘/棋谱导出。
 - 坦克大战 v1 只有自由混战：无队伍、无道具、无人机；AOI/增量快照/本地预测校正暂未实现，观战 5Hz、玩家 20Hz。
 - 房间码为 6 位、房间列表按创建时间排序；大规模公开房间需要分页与检索。
-- Cookie 为 `SameSite=Lax`，需要前后端同站；跨站独立域名需自行调整部署或走 token。
+- UUID 即身份凭证：拿到 UUID 的人可以冒充该玩家。它只适合朋友间休闲娱乐，不应在公开场合暴露；清除 localStorage 会得到全新身份。

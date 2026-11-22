@@ -208,15 +208,14 @@ export type ErrorCode =
   | 'NOT_YOUR_TURN'
   | 'INVALID_MOVE'
   | 'GAME_NOT_ACTIVE'
-  | 'RATE_LIMITED'
-  | 'AUTH_FAILED';
+  | 'RATE_LIMITED';
 
 /* ------------------------------ 服务端 → 客户端 ------------------------------ */
 
 export interface WelcomeMessage {
   type: 'welcome';
+  /** 浏览器身份 UUID：首次由服务端生成，之后由前端 localStorage 带回。 */
   playerId: string;
-  token: string;
   reconnected: boolean;
   serverTime: number;
   protocolVersion: number;
@@ -296,12 +295,6 @@ export type ServerMessage =
   | TankEventMessage;
 
 /* ------------------------------ 客户端 → 服务端 ------------------------------ */
-
-export interface HelloPayload {
-  type: 'hello';
-  playerId: string;
-  token: string;
-}
 
 export interface CreateRoomPayload {
   type: 'create_room';
@@ -385,7 +378,6 @@ export interface PingPayload {
 }
 
 export type ClientMessage =
-  | HelloPayload
   | CreateRoomPayload
   | JoinRoomPayload
   | QuickMatchPayload

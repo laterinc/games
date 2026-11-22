@@ -192,18 +192,15 @@ def main() -> None:
         b.set_viewport_size({"width": 1360, "height": 900})
         print("  ✓ 移动端 390×844 对局页渲染（截图见 /tmp/games-ui）")
 
-        # 刷新重连：A 刷新后应凭 session 自动回到房间
+        # 刷新重连：A 刷新后凭 localStorage 里的 UUID 自动回到房间
+        uid_before = a.evaluate("() => localStorage.getItem('games.uid.v1')")
         a.reload(wait_until="networkidle")
         wait_room(a, room_id)
         expect(a.locator(".board-footer")).to_contain_text("你执白棋", timeout=10_000)
-        print("  ✓ 刷新页面后凭 playerId/token 自动恢复对局与座位")
-
-        # 即使 localStorage 被清掉，也能靠握手 Cookie 认回同一玩家与座位
-        a.evaluate("() => localStorage.removeItem('games.session.v1')")
-        a.reload(wait_until="networkidle")
-        wait_room(a, room_id)
-        expect(a.locator(".board-footer")).to_contain_text("你执白棋", timeout=10_000)
-        print("  ✓ 清空 localStorage 后刷新，仍凭 Cookie 恢复同一玩家与座位")
+        uid_after = a.evaluate("() => localStorage.getItem('games.uid.v1')")
+        if not uid_before or uid_before != uid_after:
+            raise AssertionError(f"UUID 未持久化：{uid_before!r} -> {uid_after!r}")
+        print("  ✓ 刷新页面后凭 localStorage 中的 UUID 自动恢复对局与座位")
 
         # 中国象棋：首页进入 → 人机对战 → 红兵前进 → 电脑应手
         c = browser.new_context(viewport={"width": 1360, "height": 1000}).new_page()

@@ -11,6 +11,7 @@ import copy
 import logging
 import random
 import secrets
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -40,12 +41,21 @@ class ConnectionHub(Protocol):
     def online_player_ids(self) -> list[str]: ...
 
 
+def normalize_uid(value: str | None) -> str | None:
+    """把前端提供的 UUID 规范成小写标准格式；非法值返回 None。"""
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 @dataclass(slots=True)
 class Player:
-    """玩家身份，跨房间保留，用于 token / Cookie 重连。"""
+    """玩家身份，跨房间保留，用于 UUID 重连。"""
 
     id: str
-    token: str
     name: str = ""
     color: str = "black"
     connected: bool = True
@@ -185,36 +195,26 @@ class RoomManager:
     # ------------------------------------------------------------------
 
     def create_player(self) -> Player:
-        player = Player(
-            id=f"p_{secrets.token_hex(4)}",
-            token=f"t_{secrets.token_urlsafe(24)}",
-        )
+        """生成一个全新的匿名身份（UUID v4）。"""
+        player = Player(id=str(uuid.uuid4()))
         self._players[player.id] = player
         return player
 
-    def authenticate(self, player_id: str, token: str) -> Player | None:
-        player = self._players.get(player_id)
-        if player is None or not token:
-            return None
-        if not secrets.compare_digest(player.token, token):
-            return None
-        return player
+    def player_for_uid(self, uid: str | None) -> tuple[Player, bool]:
+        """按前端提供的 UUID 取回身份；没有提供或格式非法时生成新身份。
 
-    def session_cookie_value(self, player: Player) -> str:
-        return f"{player.id}.{player.token}"
-
-    def authenticate_cookie(self, value: str | None) -> Player | None:
-        if not value:
-            return None
-        player_id, sep, token = value.partition(".")
-        if not sep:
-            return None
-        return self.authenticate(player_id, token)
-
-    def discard_player(self, player_id: str) -> None:
-        if player_id in self._player_room or player_id in self._spectator_room:
-            return
-        self._players.pop(player_id, None)
+        返回 ``(player, restored)``：``restored`` 表示服务端之前已认识这个 UUID
+        （用于 welcome 的 reconnected 字段），而不是本次新建。
+        """
+        normalized = normalize_uid(uid)
+        if normalized is None:
+            return self.create_player(), False
+        player = self._players.get(normalized)
+        if player is not None:
+            return player, True
+        player = Player(id=normalized)
+        self._players[normalized] = player
+        return player, False
 
     def player_records(self, player_id: str) -> list[dict[str, Any]]:
         player = self._players.get(player_id)
@@ -404,7 +404,6 @@ class RoomManager:
         room.players.append(
             Player(
                 id=f"bot_{secrets.token_hex(4)}",
-                token="",
                 name="电脑",
                 color=bot_color,
                 connected=True,
@@ -1040,7 +1039,7 @@ class RoomManager:
     def _require_player(self, player_id: str) -> Player:
         player = self._players.get(player_id)
         if player is None:
-            raise ProtocolError(ErrorCode.AUTH_FAILED)
+            raise ProtocolError(ErrorCode.INVALID_MESSAGE, "玩家身份不存在")
         return player
 
     def _ensure_not_in_room(self, player_id: str) -> None:
@@ -1140,7 +1139,6 @@ class RoomManager:
             room.players.append(
                 Player(
                     id=f"bot_{secrets.token_hex(4)}",
-                    token="",
                     name=f"电脑{index + 1}",
                     color=room.color_order[0],
                     is_bot=True,

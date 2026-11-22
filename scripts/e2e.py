@@ -132,9 +132,9 @@ async def main() -> None:
 
     c1, w1 = await connect(ws_url, "黑方")
     c2, w2 = await connect(ws_url, "白方")
-    if not w1.get("playerId") or not w1.get("token") or not w2.get("playerId"):
-        fail("welcome 缺少 playerId/token", [w1, w2])
-    ok("两个客户端连接成功并拿到 playerId/token")
+    if not w1.get("playerId") or not w2.get("playerId"):
+        fail("welcome 缺少 playerId", [w1, w2])
+    ok("两个客户端连接成功并拿到身份 UUID")
 
     await c1.send(
         {"type": "create_room", "name": "棋手A", "roomName": "E2E 测试房", "visibility": "public", "color": "black"}
@@ -241,11 +241,10 @@ async def main() -> None:
         fail("聊天内容错误", chat)
     ok("房间内聊天广播正常")
 
-    # 断线重连：白方断开后用 token 恢复身份与房间
+    # 断线重连：白方断开后用 localStorage 里的 UUID 恢复身份与房间
     await c2.ws.close()
-    ws2 = await websockets.connect(ws_url, open_timeout=6)
+    ws2 = await websockets.connect(f"{ws_url}?uid={w2['playerId']}", open_timeout=6)
     c2b = Client(ws2, "白方重连")
-    await c2b.send({"type": "hello", "playerId": w2["playerId"], "token": w2["token"]})
     welcome = await c2b.wait(
         lambda m: m.get("type") == "welcome" and m.get("reconnected") is True,
         "重连 welcome",
@@ -253,7 +252,7 @@ async def main() -> None:
     restored = await c2b.expect("room", "重连恢复房间快照")
     if restored.get("room") is None or restored["room"]["id"] != room_id:
         fail("重连未恢复原房间", restored)
-    ok("断线用 token 重连并恢复原房间")
+    ok("断线用 UUID 重连并恢复原房间")
 
     await c2b.send({"type": "leave_room"})
     after_leave = await c1.room_where(lambda r: r["status"] == "waiting" and len(r["players"]) == 1, "对手离开后房间重置")
@@ -271,28 +270,24 @@ async def main() -> None:
     await c1.ws.close()
     await c2b.ws.close()
 
-    # 握手 Cookie 身份恢复：模拟 localStorage 丢失后刷新，仍认回同一玩家
-    ws_cookie = await websockets.connect(ws_url, open_timeout=6)
-    cookie_client = Client(ws_cookie, "Cookie 会话")
-    cookie_welcome = await cookie_client.expect("welcome", "Cookie 会话 welcome")
-    set_cookie = ws_cookie.response.headers.get("set-cookie") or ""
-    if "games_session=" not in set_cookie:
-        fail("握手未下发身份 Cookie", set_cookie)
-    cookie = set_cookie.split(";", 1)[0]
-    await ws_cookie.close()
+    # UUID 身份恢复：前端把 welcome 里的 UUID 存入 localStorage，重连时带回
+    ws_first = await websockets.connect(ws_url, open_timeout=6)
+    uid_client = Client(ws_first, "UUID 会话")
+    uid_welcome = await uid_client.expect("welcome", "UUID 会话 welcome")
+    await ws_first.close()
 
     ws_restored = await websockets.connect(
-        ws_url, open_timeout=6, additional_headers={"Cookie": cookie}
+        f"{ws_url}?uid={uid_welcome['playerId']}", open_timeout=6
     )
-    restored_client = Client(ws_restored, "Cookie 恢复")
+    restored_client = Client(ws_restored, "UUID 恢复")
     restored_welcome = await restored_client.wait(
         lambda m: m.get("type") == "welcome" and m.get("reconnected") is True,
-        "Cookie 恢复 welcome",
+        "UUID 恢复 welcome",
     )
-    if restored_welcome["playerId"] != cookie_welcome["playerId"]:
-        fail("Cookie 未恢复同一 playerId", [cookie_welcome, restored_welcome])
+    if restored_welcome["playerId"] != uid_welcome["playerId"]:
+        fail("UUID 未恢复同一 playerId", [uid_welcome, restored_welcome])
     await ws_restored.close()
-    ok("刷新/丢失 localStorage 时可通过握手 Cookie 认回同一玩家")
+    ok("刷新页面时可通过 localStorage 中的 UUID 认回同一玩家")
 
     print(f"\n== E2E PASS：{CHECKS} 项检查全部通过")
 

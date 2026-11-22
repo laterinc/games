@@ -51,7 +51,6 @@ class ErrorCode(str, Enum):
     INVALID_MOVE = "INVALID_MOVE"
     GAME_NOT_ACTIVE = "GAME_NOT_ACTIVE"
     RATE_LIMITED = "RATE_LIMITED"
-    AUTH_FAILED = "AUTH_FAILED"
 
 
 DEFAULT_ERROR_MESSAGES: dict[ErrorCode, str] = {
@@ -68,7 +67,6 @@ DEFAULT_ERROR_MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.INVALID_MOVE: "落子位置不合法",
     ErrorCode.GAME_NOT_ACTIVE: "当前不在对局中",
     ErrorCode.RATE_LIMITED: "消息发送过于频繁",
-    ErrorCode.AUTH_FAILED: "重连凭证无效",
 }
 
 

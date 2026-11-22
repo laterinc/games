@@ -9,17 +9,16 @@
 
 ## 1. 身份
 
-握手时服务端下发 HttpOnly Cookie：
+身份是一个 **UUID v4**，保存在前端 localStorage（`games.uid.v1`，永不过期）：
 
-```
-Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000
-```
-
-- `welcome` 消息同时返回 `playerId` / `token`；前端 localStorage 同步保存。
-- 首次连接：服务端创建新玩家，`reconnected=false`。
-- `hello` 用 token 认回：`{"type":"hello","playerId":"p_xxx","token":"t_xxx"}` → `welcome`（`reconnected=true`）。
-- 刷新页面 / 重开浏览器 / 多标签页：凭 Cookie 或 token 恢复同一身份与房间座位，不会互踢。
+- 首次连接（未带 UUID）：服务端生成新 UUID，通过 `welcome` 的 `playerId` 下发，`reconnected=false`。
+- 之后连接：前端把 UUID 拼到 WebSocket 地址上，例如 `wss://host/games/ws?uid=<uuid>`。服务端直接采用该 UUID，不再生成新身份。
+- 服务端已认识该 UUID 时，`welcome.reconnected=true`，并在 `welcome` / `records` 后补发当前房间快照。
+- 刷新页面 / 重开浏览器 / 多标签页：只要 localStorage 中的 UUID 相同，就恢复同一身份与房间座位，不互踢。
+- 前端提供了格式非法的 UUID 时，服务端忽略它并生成新的合法 UUID。
 - 服务端在 `welcome` 后立即推送一条 `records`（最近战绩）。
+
+> UUID 就是可迁移的身份凭证：持有同一 UUID 即代表同一玩家。清除 localStorage 等于换一个新身份。
 
 ## 2. 消息总览
 
@@ -27,7 +26,6 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
 
 | type | 说明 |
 | --- | --- |
-| `hello` | 用 playerId + token 恢复身份 |
 | `create_room` | 创建房间（可指定 gameType / 人机） |
 | `join_room` | 用房间码加入（幂等） |
 | `quick_match` | 快速匹配（按 gameType） |
@@ -47,7 +45,7 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
 
 | type | 说明 |
 | --- | --- |
-| `welcome` | 身份、token、协议版本 |
+| `welcome` | 身份 UUID、协议版本 |
 | `room` | 房间快照（`room=null` 表示已离开/房间解散） |
 | `rooms` | 公开房间列表 |
 | `chat` | 聊天消息 |
@@ -288,7 +286,7 @@ Set-Cookie: games_session=<playerId>.<token>; Path=/; HttpOnly; SameSite=Lax; Ma
 {"type":"error","code":"NOT_YOUR_TURN","message":"还没轮到你走子"}
 ```
 
-错误码：`INVALID_MESSAGE`、`UNKNOWN_TYPE`、`INVALID_NAME`、`INVALID_ROOM_NAME`、`ALREADY_IN_ROOM`、`NOT_IN_ROOM`、`ROOM_NOT_FOUND`、`ROOM_FULL`、`ROOM_STARTED`、`NOT_YOUR_TURN`、`INVALID_MOVE`、`GAME_NOT_ACTIVE`、`RATE_LIMITED`、`AUTH_FAILED`。
+错误码：`INVALID_MESSAGE`、`UNKNOWN_TYPE`、`INVALID_NAME`、`INVALID_ROOM_NAME`、`ALREADY_IN_ROOM`、`NOT_IN_ROOM`、`ROOM_NOT_FOUND`、`ROOM_FULL`、`ROOM_STARTED`、`NOT_YOUR_TURN`、`INVALID_MOVE`、`GAME_NOT_ACTIVE`、`RATE_LIMITED`。
 
 ## 7. 新增游戏
 
