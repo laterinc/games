@@ -38,7 +38,11 @@ SPAWN_SHIELD: Final = 1.5
 
 MAX_PLAYERS: Final = 8
 TARGET_KILLS: Final = 15
+#: 默认对局时长（秒）；房主可在创建房间时覆盖。
 MATCH_SECONDS: Final = 180.0
+MATCH_SECONDS_MIN: Final = 60
+MATCH_SECONDS_MAX: Final = 900
+MATCH_SECONDS_STEP: Final = 30
 
 MOVE_SPEED: Final = 6.0
 REVERSE_SPEED: Final = 3.5
@@ -341,7 +345,17 @@ class TankWorld:
         *,
         seed: int | None = None,
         started_at_ms: int | None = None,
+        match_seconds: float | int | None = None,
     ) -> None:
+        # 不传时在运行时读取 MATCH_SECONDS（便于测试 monkeypatch）；范围校验由房间层负责。
+        requested_seconds = MATCH_SECONDS if match_seconds is None else match_seconds
+        try:
+            requested_seconds = float(requested_seconds)
+        except (TypeError, ValueError):
+            requested_seconds = MATCH_SECONDS
+        if not math.isfinite(requested_seconds) or requested_seconds <= 0:
+            requested_seconds = MATCH_SECONDS
+        self._match_seconds = requested_seconds
         self._spawns = default_spawns()
         self._obstacles = _generate_obstacles(seed, self._spawns)
         # 地图用独立的 Random；复活点等运行时随机同样由 seed 决定，保证整局确定性
@@ -350,7 +364,7 @@ class TankWorld:
         if started_at_ms is None:
             started_at_ms = int(time.time() * 1000)
         self._started_at_ms = int(started_at_ms)
-        self._ends_at_ms = self._started_at_ms + int(MATCH_SECONDS * 1000)
+        self._ends_at_ms = self._started_at_ms + int(self._match_seconds * 1000)
 
         self._elapsed = 0.0
         self._ended_reason: str | None = None
@@ -807,7 +821,7 @@ class TankWorld:
             if self._scores.get(player.player_id, {}).get("kills", 0) >= TARGET_KILLS:
                 reason = "kills"
                 break
-        if reason is None and self._elapsed >= MATCH_SECONDS - _EPS:
+        if reason is None and self._elapsed >= self._match_seconds - _EPS:
             reason = "time"
         if reason is not None:
             self._finish(reason, events)
@@ -950,6 +964,7 @@ class TankWorld:
                 "theme": _THEME,
             },
             "targetKills": TARGET_KILLS,
+            "matchSeconds": int(round(self._match_seconds)),
             "endsAt": None if effective == "waiting" else self._ends_at_ms,
             "winnerId": self._winner,
             "endedReason": self._ended_reason,
@@ -965,6 +980,9 @@ __all__ = [
     "EntityView",
     "FIRE_COOLDOWN",
     "MATCH_SECONDS",
+    "MATCH_SECONDS_MAX",
+    "MATCH_SECONDS_MIN",
+    "MATCH_SECONDS_STEP",
     "MAX_PLAYERS",
     "MOVE_SPEED",
     "Obstacle",

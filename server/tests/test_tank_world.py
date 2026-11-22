@@ -496,6 +496,30 @@ def test_match_end_by_time_only_once(monkeypatch: pytest.MonkeyPatch) -> None:
     assert world.tick(DT) == []
 
 
+def test_match_seconds_custom() -> None:
+    """房主设定的对局时长会写进快照，并作为时间结束条件。"""
+    world = tank.TankWorld(
+        [("a", "A"), ("b", "B")],
+        seed=3,
+        started_at_ms=5000,
+        match_seconds=300,
+    )
+    info = world.info()
+    assert info["matchSeconds"] == 300
+    assert info["endsAt"] == 5000 + 300_000
+
+    world._elapsed = 299.9
+    events = world.tick(DT)
+    assert not any(event["kind"] == "match_end" for event in events)
+    assert world.finished() is False
+
+    events = world.tick(DT)
+    match_ends = [event for event in events if event["kind"] == "match_end"]
+    assert len(match_ends) == 1
+    assert match_ends[0]["reason"] == "time"
+    assert world.finished() is True
+
+
 def test_end_match_forfeit() -> None:
     world = make_world(seed=3)
     world.end_match("forfeit")

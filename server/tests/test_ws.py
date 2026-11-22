@@ -680,6 +680,38 @@ def test_spectator_cannot_watch_while_seated() -> None:
             _read_error(a, "ALREADY_IN_ROOM")
 
 
+def test_create_tank_room_with_match_seconds() -> None:
+    with TestClient(create_app()) as client:
+        with client.websocket_connect("/ws") as ws:
+            _welcome(ws)
+            ws.send_json(
+                {
+                    "type": "create_room",
+                    "name": "小明",
+                    "gameType": "tank",
+                    "visibility": "private",
+                    "color": "red",
+                    "matchSeconds": 300,
+                }
+            )
+            room = _read_room(ws)
+            assert room["game"]["matchSeconds"] == 300
+            assert room["status"] == "waiting"
+
+            ws.send_json({"type": "leave_room"})
+            assert _read_type(ws, "room")["room"] is None
+            ws.send_json(
+                {
+                    "type": "create_room",
+                    "name": "小明",
+                    "gameType": "tank",
+                    "visibility": "private",
+                    "color": "red",
+                    "matchSeconds": 310,
+                }
+            )
+            _read_error(ws, "INVALID_MESSAGE")
+
 def test_uid_query_restores_player() -> None:
     """刷新/重开浏览器时凭 localStorage 里的 UUID 认回同一玩家。"""
     app = create_app()

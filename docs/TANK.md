@@ -7,7 +7,7 @@
 
 ## 1. 玩法（v1 垂直切片）
 
-- 2–8 人**自由混战（FFA）**，无队伍，先到 15 杀或 180 秒结束，按击杀数排名。
+- 2–8 人**自由混战（FFA）**，无队伍，先到 15 杀或房主设定的时长结束（默认 180 秒，可选 2/3/5/10 分钟），按击杀数排名。
 - 20Hz 固定步长服务端权威模拟；客户端只发输入意图，位置/碰撞/命中全部由服务端计算。
 - 地图 96 × 96 世界单位（面积为旧版 4 倍），矩形掩体；坦克圆半径 0.9，子弹圆半径 0.18。
 - 坦克 100 HP，每发 25 伤害（4 发击杀）；开火冷却 0.9s；子弹速度 22 u/s、寿命 3s。
@@ -95,6 +95,7 @@
         "theme": "warehouse"
       },
       "targetKills": 15,
+      "matchSeconds": 180,          // 房主设定的对局时长
       "endsAt": 1699999999999,      // playing 时的时间戳，等待中为 null
       "winnerId": null,
       "endedReason": null,          // "kills" | "time" | "forfeit"
@@ -125,6 +126,7 @@
 ```python
 TICK_RATE = 20
 WORLD_SIZE = 96.0
+MATCH_SECONDS = 180.0          # 默认时长，实际值由房间 matchSeconds 传入
 
 @dataclass(frozen=True, slots=True)
 class EntityView:

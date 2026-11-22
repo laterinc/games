@@ -17,7 +17,14 @@ from typing import Any, Protocol
 
 from .protocol import GOMOKU_BOARD_SIZES, ErrorCode, ProtocolError, now_ms
 from .games import REALTIME_GAME_TYPES, GameRules, build_registry
-from .games.tank import MAX_PLAYERS as TANK_MAX_PLAYERS, TankWorld
+from .games.tank import (
+    MATCH_SECONDS as TANK_DEFAULT_MATCH_SECONDS,
+    MATCH_SECONDS_MAX as TANK_MATCH_SECONDS_MAX,
+    MATCH_SECONDS_MIN as TANK_MATCH_SECONDS_MIN,
+    MATCH_SECONDS_STEP as TANK_MATCH_SECONDS_STEP,
+    MAX_PLAYERS as TANK_MAX_PLAYERS,
+    TankWorld,
+)
 from .realtime.engine import TankSession
 
 logger = logging.getLogger(__name__)
@@ -123,6 +130,8 @@ class Room:
     session: TankSession | None = None
     #: 人机房电脑难度：easy / normal / hard。
     bot_difficulty: str = "normal"
+    #: 实时游戏对局时长（秒），由房主建房时设定。
+    match_seconds: int = int(TANK_DEFAULT_MATCH_SECONDS)
 
     # -- 便捷属性（兼容旧测试/调用方）-----------------------------------
     @property
@@ -312,6 +321,7 @@ class RoomManager:
         board_size: int | None = None,
         bot_count: int | None = None,
         bot_difficulty: str | None = None,
+        match_seconds: int | None = None,
     ) -> Room:
         async with self._lock:
             self._ensure_not_in_room(player_id)
@@ -323,6 +333,7 @@ class RoomManager:
                 color=color,
                 game_type=game_type,
                 board_size=board_size,
+                match_seconds=match_seconds,
             )
             if mode == "ai":
                 if self._is_realtime(room):
@@ -354,6 +365,7 @@ class RoomManager:
         board_size: int | None = None,
         room_id: str | None = None,
         created_at: int | None = None,
+        match_seconds: int | None = None,
     ) -> Room:
         rules = self.rules(game_type)
         if board_size is not None:
@@ -361,6 +373,23 @@ class RoomManager:
                 raise ProtocolError(ErrorCode.INVALID_MESSAGE, "只有五子棋支持设置棋盘大小")
             if board_size not in GOMOKU_BOARD_SIZES:
                 raise ProtocolError(ErrorCode.INVALID_MESSAGE, "棋盘大小不在允许范围内")
+        if match_seconds is not None:
+            if game_type not in REALTIME_GAME_TYPES:
+                raise ProtocolError(ErrorCode.INVALID_MESSAGE, "只有实时游戏支持设置对局时长")
+            if isinstance(match_seconds, bool) or not isinstance(match_seconds, int):
+                raise ProtocolError(ErrorCode.INVALID_MESSAGE, "对局时长必须是整数秒")
+            if not (TANK_MATCH_SECONDS_MIN <= match_seconds <= TANK_MATCH_SECONDS_MAX):
+                raise ProtocolError(
+                    ErrorCode.INVALID_MESSAGE,
+                    f"对局时长需在 {TANK_MATCH_SECONDS_MIN}–{TANK_MATCH_SECONDS_MAX} 秒之间",
+                )
+            if match_seconds % TANK_MATCH_SECONDS_STEP != 0:
+                raise ProtocolError(
+                    ErrorCode.INVALID_MESSAGE,
+                    f"对局时长必须是 {TANK_MATCH_SECONDS_STEP} 秒的整数倍",
+                )
+        else:
+            match_seconds = int(TANK_DEFAULT_MATCH_SECONDS) if game_type in REALTIME_GAME_TYPES else 0
         player = self._require_player(player_id)
         player.name = name
         player.ready = False
@@ -389,7 +418,10 @@ class RoomManager:
             state=rules.new_game(board_size=board_size),
             players=[player],
             max_players=self._max_players(game_type),
+            match_seconds=match_seconds,
         )
+        if game_type in REALTIME_GAME_TYPES:
+            room.state["matchSeconds"] = room.match_seconds
         self._rooms[room.id] = room
         self._player_room[player.id] = room.id
         return room
@@ -1109,7 +1141,12 @@ class RoomManager:
             player.slot = index
             player.ready = False
             players.append((player.id, player.name or f"玩家{index + 1}"))
-        world = TankWorld(players, seed=secrets.randbelow(1 << 30), started_at_ms=now)
+        world = TankWorld(
+            players,
+            seed=secrets.randbelow(1 << 30),
+            started_at_ms=now,
+            match_seconds=room.match_seconds,
+        )
         room.state = world.info()
         room.status = "playing"
         room.rematch_votes = []

@@ -77,12 +77,14 @@
   "visibility": "public",
   "color": "red",
   "boardSize": 15,
+  "matchSeconds": 180,
   "mode": "pvp"
 }
 ```
 
 - `gameType` 缺省 `"gomoku"`。
 - `boardSize`：仅五子棋支持，可选 `9/11/13/15/17/19` 路，缺省 `15`；象棋固定 9×10，传了会报 `INVALID_MESSAGE`。
+- `matchSeconds`：仅坦克大战支持，房主设定对局时长；整数秒，范围 60–900、且为 30 的整数倍，缺省 `180`。非坦克游戏传了会报 `INVALID_MESSAGE`。
 - `mode`：`"pvp"`（默认）或 `"ai"`（电脑对手，直接开局）。
 - 成功：所有连接收到 `room`；大厅在线者收到 `rooms`。
 - 错误：`INVALID_MESSAGE`（未知游戏/颜色不适用）、`ALREADY_IN_ROOM` 等。

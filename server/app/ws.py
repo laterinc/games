@@ -248,6 +248,12 @@ class MessageDispatcher:
             if not 1 <= raw_bot_count <= 7:
                 raise ProtocolError(ErrorCode.INVALID_MESSAGE, "botCount 只能是 1–7")
             bot_count = raw_bot_count
+        raw_match_seconds = payload.get("matchSeconds")
+        match_seconds: int | None = None
+        if raw_match_seconds is not None:
+            if isinstance(raw_match_seconds, bool) or not isinstance(raw_match_seconds, int):
+                raise ProtocolError(ErrorCode.INVALID_MESSAGE, "matchSeconds 必须是整数秒")
+            match_seconds = raw_match_seconds
         await self._manager.create_room(
             connection.player_id,
             name=name,
@@ -259,6 +265,7 @@ class MessageDispatcher:
             board_size=board_size,
             bot_count=bot_count,
             bot_difficulty=bot_difficulty,
+            match_seconds=match_seconds,
         )
 
     async def _handle_join_room(self, connection: ClientConnection, payload: dict[str, Any]) -> None:

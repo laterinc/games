@@ -13,7 +13,7 @@ from typing import Any
 
 from ..protocol import ErrorCode, ProtocolError
 from .base import GameRules
-from .tank import MAX_PLAYERS, TARGET_KILLS, TICK_RATE
+from .tank import MATCH_SECONDS, MAX_PLAYERS, TARGET_KILLS, TICK_RATE
 
 
 class TankRules(GameRules):
@@ -30,6 +30,7 @@ class TankRules(GameRules):
             "tickRate": TICK_RATE,
             "map": None,
             "targetKills": TARGET_KILLS,
+            "matchSeconds": int(MATCH_SECONDS),
             "endsAt": None,
             "winnerId": None,
             "endedReason": None,

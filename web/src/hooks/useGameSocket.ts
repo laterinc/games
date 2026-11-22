@@ -109,6 +109,7 @@ export interface GameActions {
     visibility: RoomVisibility;
     color: CreateColor;
     boardSize?: number;
+    matchSeconds?: number;
   }) => void;
   joinRoom: (roomId: string, name: string) => void;
   watchRoom: (roomId: string, name: string) => void;
@@ -121,6 +122,7 @@ export interface GameActions {
     boardSize?: number,
     botCount?: number,
     botDifficulty?: 'easy' | 'normal' | 'hard',
+    matchSeconds?: number,
   ) => void;
   ready: () => void;
   move: (input: MoveInput) => void;
@@ -288,6 +290,7 @@ export function useGameSocket(): UseGameSocketResult {
       visibility: RoomVisibility;
       color: CreateColor;
       boardSize?: number;
+      matchSeconds?: number;
     }): void => {
       const name = options.name.trim();
       if (!isValidNickname(name)) {
@@ -308,6 +311,9 @@ export function useGameSocket(): UseGameSocketResult {
       };
       if (options.boardSize && options.gameType === 'gomoku') {
         payload.boardSize = options.boardSize;
+      }
+      if (options.matchSeconds && options.gameType === 'tank') {
+        payload.matchSeconds = options.matchSeconds;
       }
       if (roomName) payload.roomName = roomName;
       send(payload);
@@ -350,6 +356,7 @@ export function useGameSocket(): UseGameSocketResult {
       boardSize?: number,
       botCount?: number,
       botDifficulty?: 'easy' | 'normal' | 'hard',
+      matchSeconds?: number,
     ): void => {
       const trimmedName = name.trim();
       if (!isValidNickname(trimmedName)) {
@@ -367,6 +374,7 @@ export function useGameSocket(): UseGameSocketResult {
         ...(gameType === 'gomoku' && boardSize ? { boardSize } : {}),
         ...(gameType === 'tank' && botCount ? { botCount } : {}),
         ...(gameType === 'tank' && botDifficulty ? { botDifficulty } : {}),
+        ...(gameType === 'tank' && matchSeconds ? { matchSeconds } : {}),
       });
     };
 

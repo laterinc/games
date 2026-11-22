@@ -380,6 +380,7 @@ export function normalizeTankGame(value: unknown): TankGame {
     tickRate: asNumber(raw.tickRate, 20) || 20,
     map: asTankMap(raw.map),
     targetKills: asNumber(raw.targetKills, 15),
+    matchSeconds: asNumber(raw.matchSeconds, 180) || 180,
     endsAt: asTimestamp(raw.endsAt),
     winnerId: typeof raw.winnerId === 'string' ? raw.winnerId : null,
     endedReason: reason,

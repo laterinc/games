@@ -776,6 +776,50 @@ def test_player_identity_by_uuid() -> None:
     asyncio.run(scenario())
 
 
+def test_tank_room_match_seconds_validation() -> None:
+    async def scenario() -> None:
+        hub, manager = await _setup()
+        a, b, c = await _new_players(manager, hub, "小明", "小红", "小刚")
+
+        room = await manager.create_room(
+            a.id,
+            name="小明",
+            room_name="时长测试",
+            visibility="private",
+            color="red",
+            game_type="tank",
+            match_seconds=300,
+        )
+        assert room.match_seconds == 300
+        assert room.state["matchSeconds"] == 300
+
+        with pytest.raises(ProtocolError) as exc:
+            await manager.create_room(
+                b.id,
+                name="小红",
+                room_name="",
+                visibility="private",
+                color="black",
+                game_type="gomoku",
+                match_seconds=180,
+            )
+        _assert_error(exc, ErrorCode.INVALID_MESSAGE)
+
+        with pytest.raises(ProtocolError) as exc:
+            await manager.create_room(
+                c.id,
+                name="小刚",
+                room_name="",
+                visibility="private",
+                color="red",
+                game_type="tank",
+                match_seconds=310,
+            )
+        _assert_error(exc, ErrorCode.INVALID_MESSAGE)
+
+    asyncio.run(scenario())
+
+
 # ---------------------------------------------------------------------------
 # 房间棋盘大小
 # ---------------------------------------------------------------------------

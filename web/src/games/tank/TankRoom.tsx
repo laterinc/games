@@ -869,7 +869,7 @@ export function TankRoom({
               <span className="tank-wait-code">{room.id}</span>
             </h2>
             <p className="tank-wait-sub">
-              自由混战 · 2–8 人 · 先到 {game.targetKills} 杀或 180 秒结束
+              自由混战 · 2–8 人 · 先到 {game.targetKills} 杀或 {game.matchSeconds} 秒结束
             </p>
           </div>
           <div className="tank-wait-actions">

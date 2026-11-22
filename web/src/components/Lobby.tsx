@@ -29,12 +29,14 @@ interface LobbyProps {
     visibility: RoomVisibility;
     color: CreateColor;
     boardSize?: number;
+    matchSeconds?: number;
   }) => void;
   onAiGame: (
     color: CreateColor,
     boardSize?: number,
     botCount?: number,
     botDifficulty?: 'easy' | 'normal' | 'hard',
+    matchSeconds?: number,
   ) => void;
   records: MatchRecord[];
   onJoinRoom: (roomId: string) => void;
@@ -45,6 +47,41 @@ interface LobbyProps {
 
 const BOARD_SIZE_OPTIONS = [9, 11, 13, 15, 17, 19] as const;
 const DEFAULT_GOMOKU_SIZE = 15;
+const DEFAULT_MATCH_SECONDS = 180;
+const MATCH_SECONDS_OPTIONS = [
+  { value: 120, label: '2 分钟' },
+  { value: 180, label: '3 分钟' },
+  { value: 300, label: '5 分钟' },
+  { value: 600, label: '10 分钟' },
+] as const;
+
+function MatchDurationField({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (seconds: number) => void;
+}) {
+  return (
+    <div className="field">
+      <span className="field-label">对局时长</span>
+      <div className="segmented" role="group" aria-label="对局时长">
+        {MATCH_SECONDS_OPTIONS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={`segmented-item${value === option.value ? ' is-active' : ''}`}
+            aria-pressed={value === option.value}
+            onClick={() => onChange(option.value)}
+          >
+            <span className="segmented-label">{option.label}</span>
+          </button>
+        ))}
+      </div>
+      <span className="field-hint">房主设定；时间到时按击杀数结算，双方准备后开始计时。</span>
+    </div>
+  );
+}
 
 function BoardSizeField({
   value,
@@ -186,6 +223,7 @@ export function Lobby({
   const [boardSize, setBoardSize] = useState<number>(DEFAULT_GOMOKU_SIZE);
   const [botCount, setBotCount] = useState(3);
   const [botDifficulty, setBotDifficulty] = useState<'easy' | 'normal' | 'hard'>('easy');
+  const [matchSeconds, setMatchSeconds] = useState(DEFAULT_MATCH_SECONDS);
 
   useEffect(() => {
     if (initialRoomCode) setJoinCode(initialRoomCode);
@@ -196,6 +234,7 @@ export function Lobby({
     setColor(defaultColor);
     setAiColor(defaultColor);
     setBoardSize(DEFAULT_GOMOKU_SIZE);
+    setMatchSeconds(DEFAULT_MATCH_SECONDS);
   }, [gameType]);
 
   const trimmedNickname = nickname.trim();
@@ -229,6 +268,7 @@ export function Lobby({
       visibility,
       color,
       boardSize: gameType === 'gomoku' ? boardSize : undefined,
+      matchSeconds: isRealtime ? matchSeconds : undefined,
     });
     setCreateOpen(false);
   };
@@ -240,6 +280,7 @@ export function Lobby({
       gameType === 'gomoku' ? boardSize : undefined,
       isRealtime ? botCount : undefined,
       isRealtime ? botDifficulty : undefined,
+      isRealtime ? matchSeconds : undefined,
     );
     setAiOpen(false);
   };
@@ -682,9 +723,12 @@ export function Lobby({
         </div>
 
         {isRealtime ? (
-          <p className="action-hint">
-            坦克大战为自由混战：{meta.players}，{meta.note}
-          </p>
+          <>
+            <p className="action-hint">
+              坦克大战为自由混战：{meta.players}，{meta.note}
+            </p>
+            <MatchDurationField value={matchSeconds} onChange={setMatchSeconds} />
+          </>
         ) : (
         <div className="field">
           <span className="field-label">执子颜色</span>
@@ -729,7 +773,7 @@ export function Lobby({
           <>
             <p className="action-hint">
               与电脑坦克自由混战，无需等待对手：电脑会追击、绕障、瞄准提前量并开火。先到{' '}
-              15 杀或 180 秒结束。
+              15 杀或 {matchSeconds} 秒结束。
             </p>
             <div className="field">
               <span className="field-label">电脑坦克数量</span>
@@ -784,6 +828,7 @@ export function Lobby({
                 ))}
               </div>
             </div>
+            <MatchDurationField value={matchSeconds} onChange={setMatchSeconds} />
             <p className="tank-ready-tip">
               提示：进入对局后点击画面锁定鼠标，准星跟随鼠标移动，炮塔会自动跟瞄准星。
             </p>

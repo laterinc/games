@@ -114,6 +114,8 @@ export interface TankGame {
   tickRate: number;
   map: TankMap | null;
   targetKills: number;
+  /** 房主设定的对局时长（秒）。 */
+  matchSeconds: number;
   endsAt: number | null;
   winnerId: string | null;
   endedReason: 'kills' | 'time' | 'forfeit' | null;
@@ -309,6 +311,8 @@ export interface CreateRoomPayload {
   botCount?: number;
   /** 仅坦克大战人机：电脑难度。 */
   botDifficulty?: 'easy' | 'normal' | 'hard';
+  /** 仅坦克大战：对局时长（秒），房主设定。 */
+  matchSeconds?: number;
   mode?: 'pvp' | 'ai';
 }
 
