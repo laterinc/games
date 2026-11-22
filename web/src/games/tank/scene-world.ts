@@ -2174,6 +2174,8 @@ export interface TankModel {
   readonly root: THREE.Group;
   /** 炮塔（车体局部坐标），rotation.y 由调用方设置为 hull - turret。 */
   readonly turret: THREE.Group;
+  /** 炮管俯仰（弧度，负值向下）：仅视觉表现，服务端仍是 2D 水平弹道。 */
+  setGunPitch(pitch: number): void;
   setSlot(slot: number): void;
   setShield(active: boolean): void;
   setLocal(active: boolean): void;
@@ -2748,7 +2750,10 @@ export function createModelFactory(): ModelFactory {
     const turretAccent = new THREE.Mesh(turretAccentGeometry, accentMaterial);
     turret.add(turretAccent);
     const turretGun = new THREE.Mesh(turretGunGeometry, gunMetalMaterial);
-    turret.add(turretGun);
+    // 炮管单独挂在一个枢轴上，便于按瞄准点做视觉俯仰；炮塔漆面保持水平。
+    const gunPivot = new THREE.Group();
+    gunPivot.add(turretGun);
+    turret.add(gunPivot);
     // 炮塔队伍色环带 / 舱盖环 / 侧面识别色带
     const turretTeam = new THREE.Mesh(turretTeamGeometry, teamMaterials[0]);
     turret.add(turretTeam);
@@ -2782,6 +2787,9 @@ export function createModelFactory(): ModelFactory {
     return {
       root,
       turret,
+      setGunPitch(pitch: number): void {
+        gunPivot.rotation.z = THREE.MathUtils.clamp(pitch, -0.55, 0.2);
+      },
       setSlot: applySlot,
       setShield(active: boolean): void {
         shield.visible = active;

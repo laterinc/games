@@ -272,6 +272,10 @@ const DEFAULT_CAMERA_LEAD = 10;
 
 /** 炮口尖端在炮塔局部坐标（模型单位，root 的 0.7 缩放由 matrixWorld 处理）。 */
 const MUZZLE_LOCAL = new THREE.Vector3(2.95, 0.2, 0);
+/** 炮塔枢轴/炮管轴线/瞄准地面高度（模型局部坐标），用于计算视觉俯仰角。 */
+const TURRET_HEIGHT = 0.98;
+const GUN_AXIS_HEIGHT = 0.2;
+const AIM_GROUND_HEIGHT = 0.06;
 /** 瞄准辅助线分段数（虚线感，规避 WebGL 线宽限制）。 */
 const AIM_LINE_DASHES = 12;
 
@@ -922,6 +926,7 @@ export function createTankScene(
     root.rotation.y = -entity.hull;
     // 炮塔角是世界绝对角，扣掉车体旋转得到局部角
     tracked.model.turret.rotation.y = entity.hull - entity.turret;
+    if (entity.id !== localId) tracked.model.setGunPitch(0);
     tracked.model.setShield(entity.shielded);
   }
 
@@ -1260,8 +1265,18 @@ export function createTankScene(
       aimLine.visible = false;
       return;
     }
+    // 炮管视觉俯仰：让 3D 炮管真正指向地面瞄准点，虚线才会看起来是炮管的延长线。
+    const horizontal = Math.hypot(x - tracked.x, z - tracked.y);
+    const gunPitch =
+      horizontal > 0.35
+        ? Math.atan2(AIM_GROUND_HEIGHT - TURRET_HEIGHT - GUN_AXIS_HEIGHT, horizontal)
+        : 0;
+    tracked.model.setGunPitch(gunPitch);
     tracked.model.turret.updateWorldMatrix(true, false);
-    muzzleWorld.copy(MUZZLE_LOCAL).applyMatrix4(tracked.model.turret.matrixWorld);
+    muzzleWorld
+      .copy(MUZZLE_LOCAL)
+      .applyAxisAngle(Z_AXIS, gunPitch)
+      .applyMatrix4(tracked.model.turret.matrixWorld);
     const positions = aimLinePositions.array as Float32Array;
     for (let dash = 0; dash < AIM_LINE_DASHES; dash += 1) {
       const startT = dash / AIM_LINE_DASHES;
@@ -1283,6 +1298,8 @@ export function createTankScene(
     aimInnerRing.visible = false;
     aimDot.visible = false;
     aimLine.visible = false;
+    const tracked = localId !== null ? tanks.get(localId) : undefined;
+    tracked?.model.setGunPitch(0);
   }
 
   /** 根据最近一次 aimFromScreen 的结果刷新瞄准环 / 炮口虚线。 */

@@ -651,22 +651,31 @@ export function TankRoom({
         if (mineView && cameraModeRef.current !== 'top') {
           cameraApi.setCameraYaw?.(mineView.hull, lookPitchRef.current);
         }
-        // 炮塔瞄准：准星相对坦克的屏幕方向 → 世界方向（360° 无限制）。
+        // 炮塔瞄准：优先指向准星正下方的地面点，让炮管、虚线、标靶环真正共线。
+        // 准星指向天空/地平线时射线打不到地面，退回「屏幕方向 → 世界方向」的 360° 模型。
         if (mineView && typeof cameraApi.worldToScreen === 'function') {
-          const tankNdc = cameraApi.worldToScreen(mineView.x, mineView.y);
-          const dx = reticleRef.current.x - tankNdc.x;
-          const dy = reticleRef.current.y - tankNdc.y;
-          const yaw = scene.getCameraYaw();
-          if (dx * dx + dy * dy > 0.0025) {
-            const worldX = Math.cos(yaw) * dy - Math.sin(yaw) * dx;
-            const worldY = Math.sin(yaw) * dy + Math.cos(yaw) * dx;
-            aimRef.current = Math.atan2(worldY, worldX);
-          }
-          // 标靶环 = 准星正下方的地面交点：距离完全由准星位置决定（可变）。
           const groundPoint = cameraApi.groundPointFromScreen?.(
             reticleRef.current.x,
             reticleRef.current.y,
           ) ?? null;
+          if (groundPoint) {
+            const dxWorld = groundPoint.x - mineView.x;
+            const dzWorld = groundPoint.y - mineView.y;
+            if (dxWorld * dxWorld + dzWorld * dzWorld > 0.25) {
+              aimRef.current = Math.atan2(dzWorld, dxWorld);
+            }
+          } else {
+            const tankNdc = cameraApi.worldToScreen(mineView.x, mineView.y);
+            const dx = reticleRef.current.x - tankNdc.x;
+            const dy = reticleRef.current.y - tankNdc.y;
+            const yaw = scene.getCameraYaw();
+            if (dx * dx + dy * dy > 0.0025) {
+              const worldX = Math.cos(yaw) * dy - Math.sin(yaw) * dx;
+              const worldY = Math.sin(yaw) * dy + Math.cos(yaw) * dx;
+              aimRef.current = Math.atan2(worldY, worldX);
+            }
+          }
+          // 标靶环 = 准星正下方的地面交点：距离完全由准星位置决定（可变）。
           cameraApi.setAimDirection?.(aimRef.current, groundPoint);
         }
         updateCrosshairPosition();

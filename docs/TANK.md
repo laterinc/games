@@ -279,7 +279,7 @@ export function createTankScene(canvas: HTMLCanvasElement): TankScene;
   `ResizeObserver` 同步渲染尺寸。
 - 标靶环：位置 = 屏幕中心射线的地面交点（距离可变，随视角俯仰自然变化），`depthTest:false` 置顶显示；
   从炮口到标靶的虚线同步画到该点。
-- 瞄准与视角（第三人称坦克手感）：点画面锁定鼠标后，**鼠标移动虚拟准星**（NDC），炮塔瞄准方向 = 「准星 NDC − 本地坦克 NDC」经相机 yaw 换算得到的世界方向（360° 无限制、零平滑）；标靶环画在准星正下方的地面交点（`groundPointFromScreen`），距离随准星位置变化，`depthTest:false` 置顶；相机每帧自动跟到车体后方（yaw = 车体角），车体在「跟随」模式自动朝瞄准方向转、A/D 辅助覆盖。
+- 瞄准与视角（第三人称坦克手感）：点画面锁定鼠标后，**鼠标移动虚拟准星**（NDC）。准星射线命中地面时，炮塔 yaw = 坦克中心指向该地面点，炮管按距离做视觉俯仰，保证「炮管 → 虚线 → 标靶环」屏幕共线；射线打不到地面（指天空/地平线）时退回「准星 NDC − 本地坦克 NDC」经相机 yaw 换算的 360° 方向模型（零平滑）。标靶环画在准星正下方的地面交点（`groundPointFromScreen`），距离随准星位置变化，`depthTest:false` 置顶；相机每帧自动跟到车体后方（yaw = 车体角），车体在「跟随」模式自动朝瞄准方向转、A/D 辅助覆盖。
 
 ### 6.4 页面（`web/src/games/tank/TankRoom.tsx`）
 
