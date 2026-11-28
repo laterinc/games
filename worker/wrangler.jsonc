@@ -1,0 +1,47 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "games-api",
+  "main": "src/entry.py",
+  "compatibility_date": "2026-11-22",
+  "compatibility_flags": ["python_workers"],
+  "observability": {
+    "enabled": true
+  },
+  "routes": [
+    {
+      "pattern": "cloudflare.org.cn/games*",
+      "zone_name": "cloudflare.org.cn"
+    }
+  ],
+  "vars": {
+    "BOARD_SIZE": "15",
+    "CORS_ORIGINS": "https://games.later.design,https://cloudflare.org.cn,http://localhost:5173,http://127.0.0.1:5173",
+    "ALLOWED_ORIGINS": "https://games.later.design,https://cloudflare.org.cn,http://localhost:5173,http://127.0.0.1:5173",
+    "ROOM_TTL_SECONDS": "21600",
+    "DISCONNECT_GRACE_SECONDS": "60",
+    "TANK_TICK_RATE": "10"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      // 与 Dashboard 中的 D1 库名一致；远程绑定以 database_id 为准。
+      "database_name": "games",
+      "database_id": "d3ca2d34-8539-4dfd-a43e-05c57ddb6a81",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GAME_HUB",
+        "class_name": "GameHub"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["GameHub"]
+    }
+  ]
+}

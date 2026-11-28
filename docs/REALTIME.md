@@ -62,6 +62,8 @@
 ```text
 client -> server: text  {"type":"create_room","gameType":"tank",...}
 server -> client: text  {"type":"welcome","protocolVersion":3,"binary":true,"tickRate":20}
+# 注意：tickRate 是服务端能力协商值。Cloudflare Workers 部署默认 TANK_TICK_RATE=10；
+# 客户端应按 welcome.tickRate / room.game.tickRate 调整输入发送间隔，不要硬编码 20Hz。
 client -> server: bin   01 05 00 2a ...   // input, seq=42
 server -> client: bin   02 01 12 34 ...   // snapshot, tick=4660
 ```

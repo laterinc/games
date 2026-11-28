@@ -21,3 +21,16 @@ web/.env.local
 web/.env.*.local
 *.log
 .DS_Store
+
+# Cloudflare Python Worker 本地环境
+worker/.venv/
+worker/.venv-workers/
+worker/python_modules/
+worker/pylock.toml
+worker/node_modules
+worker/.wrangler/
+worker/.dev.vars
+worker/.tmp/
+.tmp/
+
+worker/uv.lock

@@ -610,10 +610,11 @@ export function TankRoom({
     else playResultSound('draw');
   }, [phase, isSpectator, game.winnerId, playerId]);
 
-  /* ------------------------------ 上行输入（20Hz） ------------------------------ */
+  /* ------------------------------ 上行输入（服务端 tickRate，默认 20Hz） ------------------------------ */
 
   useEffect(() => {
     if (phase !== 'playing' || isSpectator || localEntityId === null) return undefined;
+    const inputHz = Math.max(5, Math.min(20, game.tickRate || 20));
     const send = (): void => {
       const scene = sceneRef.current;
       const intent = inputRef.current.intent();
@@ -627,9 +628,9 @@ export function TankRoom({
       seqRef.current = nextSeq(seqRef.current);
     };
     send();
-    const timer = window.setInterval(send, 50);
+    const timer = window.setInterval(send, Math.round(1000 / inputHz));
     return () => window.clearInterval(timer);
-  }, [phase, isSpectator, localEntityId, socket]);
+  }, [phase, isSpectator, localEntityId, socket, game.tickRate]);
 
   /* ------------------------------ 渲染循环 ------------------------------ */
 

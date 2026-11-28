@@ -18,6 +18,7 @@ from typing import Any, Protocol
 from .protocol import GOMOKU_BOARD_SIZES, ErrorCode, ProtocolError, now_ms
 from .games import REALTIME_GAME_TYPES, GameRules, build_registry
 from .games.tank import (
+    TICK_RATE as TANK_TICK_RATE,
     MATCH_SECONDS as TANK_DEFAULT_MATCH_SECONDS,
     MATCH_SECONDS_MAX as TANK_MATCH_SECONDS_MAX,
     MATCH_SECONDS_MIN as TANK_MATCH_SECONDS_MIN,
@@ -172,11 +173,17 @@ class RoomManager:
         room_ttl_seconds: float = 6 * 3600.0,
         disconnect_grace_seconds: float = 60.0,
         games: dict[str, GameRules] | None = None,
+        store: Any | None = None,
+        tank_tick_rate: int = 20,
     ) -> None:
         self._hub = hub
         self.board_size = board_size
         self.room_ttl_seconds = room_ttl_seconds
         self.disconnect_grace_seconds = disconnect_grace_seconds
+        self.tank_tick_rate = tank_tick_rate
+        #: 可选的持久化后端（Cloudflare Workers + D1）；为 None 时保持纯内存。
+        self._store = store
+        self._persist_tasks: set[asyncio.Task[Any]] = set()
         self._games = games or build_registry(gomoku_board_size=board_size)
         self._lock = asyncio.Lock()
         self._players: dict[str, Player] = {}
@@ -230,6 +237,62 @@ class RoomManager:
         if player is None or player.is_bot:
             return []
         return [dict(record) for record in player.records]
+
+    async def hydrate_player(self, player_id: str) -> bool:
+        """连接时从持久化后端恢复昵称与最近战绩（Workers/D1 模式）。
+
+        返回是否找到了已有玩家档案，用于 welcome 的 ``reconnected``。
+        内存模式（``store=None``）下是空操作，因此原有 FastAPI 行为不变。
+        持久化失败不应阻止玩家进入大厅，错误只记录日志。
+        """
+        store = self._store
+        if store is None:
+            return False
+        player = self._players.get(player_id)
+        if player is None or player.is_bot:
+            return False
+        try:
+            profile = await store.load_player(player_id)
+            records = await store.load_records(player_id)
+        except Exception:  # noqa: BLE001 - 存储故障降级为无历史
+            logger.exception("读取玩家 %s 的持久化数据失败", player_id)
+            return False
+        if profile and not player.name and profile.get("name"):
+            player.name = str(profile["name"])
+        if records:
+            player.records = [dict(record) for record in records][-MAX_RECORDS:]
+        return profile is not None
+
+    def _spawn_persist(self, coro: Any) -> None:
+        """把一次持久化写操作挂到后台任务，并持有引用防止被 GC。"""
+        task = asyncio.create_task(coro)
+        self._persist_tasks.add(task)
+
+        def _done(finished: asyncio.Task[Any]) -> None:
+            self._persist_tasks.discard(finished)
+            if finished.cancelled():
+                return
+            error = finished.exception()
+            if error is not None:
+                logger.error("持久化写入失败：%s", error, exc_info=error)
+
+        task.add_done_callback(_done)
+
+    def _persist_player_name(self, player: Player) -> None:
+        if self._store is None or player.is_bot or not player.name:
+            return
+        self._spawn_persist(self._store.upsert_player(player.id, player.name, now_ms()))
+
+    def _persist_record(self, player: Player, record: dict[str, Any]) -> None:
+        if self._store is None or player.is_bot:
+            return
+        self._spawn_persist(self._store.append_record(player.id, record))
+
+    async def flush_persist(self) -> None:
+        """等待当前挂起的持久化写入完成（终局广播前调用，保证重连可见）。"""
+        tasks = list(self._persist_tasks)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     # ------------------------------------------------------------------
     # 连接状态 / 断线宽限
@@ -392,6 +455,7 @@ class RoomManager:
             match_seconds = int(TANK_DEFAULT_MATCH_SECONDS) if game_type in REALTIME_GAME_TYPES else 0
         player = self._require_player(player_id)
         player.name = name
+        self._persist_player_name(player)
         player.ready = False
         if game_type in REALTIME_GAME_TYPES:
             # 实时游戏没有执子颜色概念，座位由 slot 决定（房主先坐 0 号位）。
@@ -781,6 +845,25 @@ class RoomManager:
     def room_count(self) -> int:
         return len(self._rooms)
 
+    def realtime_debug(self) -> list[dict[str, Any]]:
+        """实时对局的轻量诊断信息（Workers health 用，不含世界快照）。"""
+        result: list[dict[str, Any]] = []
+        for room in self._rooms.values():
+            session = room.session
+            if session is None:
+                continue
+            result.append(
+                {
+                    "roomId": room.id,
+                    "gameType": room.game_type,
+                    "tick": session.tick,
+                    "lastStepMs": round(getattr(session, "last_step_ms", 0.0), 2),
+                    "maxStepMs": round(getattr(session, "max_step_ms", 0.0), 2),
+                    "lastSendMs": round(getattr(session, "last_send_ms", 0.0), 2),
+                }
+            )
+        return result
+
     async def reap_idle_rooms(self) -> int:
         if self.room_ttl_seconds < 0:
             return 0
@@ -864,22 +947,23 @@ class RoomManager:
                 result = "win"
             else:
                 result = "loss"
-            player.records.append(
-                {
-                    "result": result,
-                    "opponent": opponent.name if opponent is not None else "",
-                    "mode": room.mode,
-                    "gameType": room.game_type,
-                    "endedReason": reason,
-                    "moves": len(room.state.get("moves") or []),
-                    "myColor": player.color,
-                    "at": at,
-                }
-            )
+            record = {
+                "result": result,
+                "opponent": opponent.name if opponent is not None else "",
+                "mode": room.mode,
+                "gameType": room.game_type,
+                "endedReason": reason,
+                "moves": len(room.state.get("moves") or []),
+                "myColor": player.color,
+                "at": at,
+            }
+            player.records.append(record)
+            self._persist_record(player, record)
             if len(player.records) > MAX_RECORDS:
                 del player.records[: len(player.records) - MAX_RECORDS]
 
     async def _send_records_to_room(self, room: Room) -> None:
+        await self.flush_persist()
         for player in room.players:
             if player.is_bot:
                 continue
@@ -1024,6 +1108,7 @@ class RoomManager:
         host = room.host or room.players[0]
         player = self._require_player(player_id)
         player.name = name
+        self._persist_player_name(player)
         if self._is_realtime(room):
             player.slot = len(room.players)
             player.color = room.color_order[0]
@@ -1148,6 +1233,8 @@ class RoomManager:
             match_seconds=room.match_seconds,
         )
         room.state = world.info()
+        if self.tank_tick_rate != TANK_TICK_RATE:
+            room.state["tickRate"] = self.tank_tick_rate
         room.status = "playing"
         room.rematch_votes = []
         room.pending_undo = None
@@ -1158,6 +1245,7 @@ class RoomManager:
             self._hub,
             on_finish=self._on_tank_finished,
             room_id=room.id,
+            tick_rate=self.tank_tick_rate,
         )
         room.session.start()
         logger.info("实时对局开始：房间 %s，%d 人", room.id, len(players))
@@ -1227,18 +1315,18 @@ class RoomManager:
                 result = "win"
             else:
                 result = "loss"
-            player.records.append(
-                {
-                    "result": result,
-                    "opponent": "",
-                    "mode": room.mode,
-                    "gameType": room.game_type,
-                    "endedReason": reason,
-                    "moves": kills,
-                    "myColor": player.color,
-                    "at": at,
-                }
-            )
+            record = {
+                "result": result,
+                "opponent": "",
+                "mode": room.mode,
+                "gameType": room.game_type,
+                "endedReason": reason,
+                "moves": kills,
+                "myColor": player.color,
+                "at": at,
+            }
+            player.records.append(record)
+            self._persist_record(player, record)
             if len(player.records) > MAX_RECORDS:
                 del player.records[: len(player.records) - MAX_RECORDS]
 
@@ -1270,6 +1358,13 @@ class RoomManager:
         else:
             await self._broadcast_room(room)
         await self._push_lobby(exclude=exclude)
+
+    async def pump_realtime(self, player_id: str) -> None:
+        """Workers 用：每次收到二进制输入后推进一次实时对局（内部按墙钟限频）。"""
+        room = self._room_of(player_id)
+        if room is None or room.session is None:
+            return
+        await room.session.pump()
 
     def submit_binary(self, player_id: str, data: bytes) -> bool:
         """WS 层收到二进制帧时调用：转交给玩家所在房间的实时会话。"""

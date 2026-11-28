@@ -1,11 +1,13 @@
 """实时对局会话：固定步长 tick 循环 + 二进制关键帧广播。
 
-一个 ``TankSession`` 对应一个实时房间：持有 ``TankWorld``（纯模拟），按 20Hz 推进，
+一个 ``TankSession`` 对应一个实时房间：持有 ``TankWorld``（纯模拟），按固定步长推进，
 每个 tick 把世界快照编码成协议 v3 关键帧，通过 ``ConnectionHub.send_bytes_to_player``
 广播给房间内的玩家与观战者；低频事件（命中/击杀/复活/结束）走 JSON ``tank_event``。
 
-设计约束见 ``docs/TANK.md`` §5.2：
-- 单房间一个 asyncio 任务；固定步长 + 累计器补帧，单次最多追 5 步。
+两种驱动方式：
+- FastAPI/CPython：单房间一个 asyncio 任务，固定步长 + 累计器补帧；
+- Cloudflare Workers：由客户端二进制输入驱动 ``pump()``（Workers 后台任务的
+  二进制 ws.send 缺少 I/O 上下文，且定时器会被限流），默认 10Hz。
 - 输入只接受二进制帧，按玩家限频 30 次/秒，队列只保留最新一帧（按 tick 合并）。
 - 结束时通过 ``on_finish`` 回调让房间层结算，回调用 ``asyncio.create_task`` 调度，
   避免与房间层持有的锁互相等待。
@@ -23,6 +25,13 @@ from ..games.tank import TICK_RATE, EntityView, TankWorld
 from ..games.tank_ai import TankBotController
 from . import codec
 
+try:  # Cloudflare Workers/Pyodide 有 js 模块；FastAPI/CPython 下走 asyncio。
+    import js as _js  # noqa: F401
+
+    _IS_WORKERS = True
+except ImportError:  # pragma: no cover - 仅 Workers 运行时为真
+    _IS_WORKERS = False
+
 logger = logging.getLogger(__name__)
 
 #: 单个玩家输入频率上限（次/秒），超出直接丢弃。
@@ -30,9 +39,9 @@ MAX_INPUT_RATE = 30.0
 #: 观战者快照降频：每 N 个 tick 发一次。
 SPECTATOR_EVERY = 4
 #: 单次循环最多补多少帧，避免卡顿后雪崩。
-MAX_CATCHUP_STEPS = 5
+MAX_CATCHUP_STEPS = 4
 #: 落后超过该秒数时直接重同步基准时间。
-RESYNC_THRESHOLD = 1.0
+RESYNC_THRESHOLD = 0.5
 
 #: 实体 flags 位域（与 web/src/games/tank/protocol.ts 保持一致）。
 FLAG_KIND_BULLET = 1
@@ -111,6 +120,9 @@ class TankSession:
         self._room_id = room_id
         self._tick_rate = tick_rate
         self._task: asyncio.Task[None] | None = None
+        self._stepping = False
+        self._started = False
+        self._next_tick_time = 0.0
         self._stopped = False
         self._finished_notified = False
         self._tick = 0
@@ -122,6 +134,10 @@ class TankSession:
             player.id for player in getattr(room, "players", ()) if getattr(player, "is_bot", False)
         )
         self._bot_controller = self._build_bot_controller()
+        #: 便于在 Workers 日志里观察单 tick 耗时（Pyodide/WASM 下比本地慢）。
+        self.last_step_ms = 0.0
+        self.max_step_ms = 0.0
+        self.last_send_ms = 0.0
 
     def _build_bot_controller(self) -> TankBotController | None:
         if not self._bot_ids:
@@ -150,10 +166,47 @@ class TankSession:
     # ------------------------------------------------------------------
 
     def start(self) -> None:
-        if self._task is not None:
+        if self._task is not None or self._started:
             return
+        self._started = True
         self._stopped = False
+        if _IS_WORKERS:
+            # Workers：坦克 tick 由客户端二进制输入驱动（前端按欢迎消息里的
+            # tickRate 发送）。后台 asyncio/JS 定时器在 Workers 里要么缺少 ws
+            # 二进制发送的 I/O 上下文，要么被运行时限流；输入驱动能保证
+            # “有玩家在玩就有 tick”，且发送发生在 WebSocket 消息事件上下文内。
+            self._next_tick_time = time.time()
+            return
         self._task = asyncio.create_task(self._run(), name=f"tank-session-{self._room_id}")
+
+    async def pump(self) -> None:
+        """Workers 用：由输入消息驱动，按 ``tick_rate`` 墙钟节拍推进并广播快照。"""
+        if not _IS_WORKERS or self._stopped or self._stepping:
+            return
+        now = time.time()
+        if now < self._next_tick_time:
+            return
+        self._stepping = True
+        try:
+            steps = 0
+            while (
+                not self._stopped
+                and time.time() >= self._next_tick_time
+                and steps < MAX_CATCHUP_STEPS
+            ):
+                await self._step(1.0 / self._tick_rate)
+                self._next_tick_time += 1.0 / self._tick_rate
+                steps += 1
+                if self._world.finished():
+                    break
+            if time.time() - self._next_tick_time > RESYNC_THRESHOLD:
+                self._next_tick_time = time.time()
+            if not self._stopped and self._world.finished():
+                await self._notify_finished()
+        except Exception:  # noqa: BLE001 - 单 tick 异常不能终止整个会话
+            logger.exception("实时房间 %s tick 异常", self._room_id)
+        finally:
+            self._stepping = False
 
     def cancel(self) -> None:
         """同步取消任务（进程退出时用，避免 await 造成二次事件循环调度）。"""
@@ -222,9 +275,12 @@ class TankSession:
                     if self._world.finished():
                         break
                 if loop.time() - next_time > RESYNC_THRESHOLD:
+                    # 服务器 CPU 跟不上 20Hz 时直接对齐当前时间，避免无限补帧占满事件循环。
                     next_time = loop.time()
                 if self._world.finished():
                     break
+                # 显式让出事件循环：即使 tick 超时，HTTP/WS 消息也能被处理。
+                await asyncio.sleep(0.001)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 - 单房间异常不能影响整个服务
@@ -234,6 +290,7 @@ class TankSession:
                 await self._notify_finished()
 
     async def _step(self, dt: float) -> None:
+        started = time.time()
         if self._bot_controller is not None:
             entities = self._world.entities()
             for player_id in self._bot_ids:
@@ -243,9 +300,14 @@ class TankSession:
             self._world.apply_input(player_id, flags=flags, aim=aim, tick=self._tick)
         events = self._world.tick(dt)
         self._tick += 1
+        send_started = time.time()
         await self._broadcast_snapshot()
+        self.last_send_ms = (time.time() - send_started) * 1000.0
         if events:
             await self._broadcast_events(events)
+        self.last_step_ms = (time.time() - started) * 1000.0
+        if self.last_step_ms > self.max_step_ms:
+            self.max_step_ms = self.last_step_ms
 
     async def _broadcast_snapshot(self) -> None:
         try:

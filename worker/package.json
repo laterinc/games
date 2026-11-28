@@ -1,0 +1,9 @@
+{
+  "name": "games-worker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cloudflare Python Worker backend (pywrangler + wrangler CLI)",
+  "devDependencies": {
+    "wrangler": "^4.166.0"
+  }
+}

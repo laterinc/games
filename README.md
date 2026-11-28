@@ -80,7 +80,7 @@
 ## 技术栈与目录
 
 - 前端：React 18、TypeScript 5.6、Vite 5、纯 CSS（无 UI 组件库）；3D 坦克大战用 three.js（仅 `/tank` 路由动态 import，主包不受影响）
-- 后端：Python 3.11、FastAPI、uvicorn、原生 WebSocket
+- 后端：Python 3.11、FastAPI、uvicorn、原生 WebSocket；另有 **Cloudflare Python Workers + D1** 部署形态（`worker/`，协议与规则复用，见 [`worker/README.md`](worker/README.md)）
 - 部署：前端静态资源由 Nginx / CDN / Cloudflare Workers 托管；后端只提供 `/api` 与 `/ws`，**不托管任何前端文件**
 
 ```text
@@ -89,6 +89,7 @@ games/
 │   ├── app/
 │   │   ├── main.py          # FastAPI：/api/health、/api/rooms、/api/config + WS
 │   │   ├── ws.py            # WebSocket 接入、UUID 身份、消息分发
+│   │   ├── dispatch.py      # 协议消息解析/分发（FastAPI 与 Workers 共用）
 │   │   ├── rooms.py         # 游戏无关的房间生命周期 / 悔棋 / 认输 / AI / 战绩
 │   │   ├── games/
 │   │   │   ├── base.py      # GameRules 插件接口
@@ -104,6 +105,11 @@ games/
 │   │   └── protocol.py      # 协议 v2 常量、错误码、校验
 │   ├── tests/               # pytest（规则 + 房间 + WebSocket 集成）
 │   └── run.py               # CLI 启动入口（--host/--port/--reload）
+├── worker/                  # Cloudflare Python Workers + D1 后端（可选部署形态）
+│   ├── src/entry.py         # Worker 入口 → GameHub Durable Object
+│   ├── src/hub.py           # 单 DO 大厅、WS 事件、REST/CORS、定时任务
+│   ├── src/store.py         # D1：玩家昵称 + 最近 10 局战绩
+│   └── README.md            # 本地开发 / 部署 / 限制
 ├── web/
 │   └── src/
 │       ├── games/
@@ -286,6 +292,20 @@ npm run deploy        # = npm run build && wrangler deploy，上传的是 dist/
 > 浏览器会报 “Expected a JavaScript-or-Wasm module script…”，页面纯黑。
 > 若前端改部署到子路径（如 `https://cloudflare.org.cn/games/`），构建时设 `VITE_BASE_PATH=/games/` 并重新构建。
 
+### Cloudflare Workers（Python 后端 + D1）
+
+后端也可以整体部署到 **Cloudflare Python Workers**，代码在 `worker/`，通过一个 `GameHub` Durable Object 承载大厅与 WebSocket，D1 持久化玩家昵称与最近 10 局战绩。协议、规则和 AI 与 FastAPI 版完全一致，前端无需改协议。
+
+```bash
+cd worker
+npx wrangler login
+npx wrangler d1 migrations apply games --remote   # database_name 按实际库名修改
+uv run pywrangler deploy
+```
+
+详细架构、限制（单 DO、非休眠 WebSocket、Pyodide 无线程）、本地开发与故障排查见 [`worker/README.md`](worker/README.md)。如果继续让前端指向 `https://cloudflare.org.cn/games`，给 Worker 配 `cloudflare.org.cn/games*` 路由即可，Worker 会自动剥掉 `/games` 前缀。
+
+### 前后端分域部署
 ### 前后端分域部署
 
 同域部署无需 CORS；分域时配置后端 `CORS_ORIGINS=https://your-frontend.example.com`（当前前端是 `https://games.later.design`，后端是 `https://cloudflare.org.cn/games`，需要把前者加入 CORS），前端通过 `VITE_API_BASE` / `VITE_WS_URL` 指到后端域名。身份保存在前端 localStorage 的 UUID 中，不依赖 Cookie，因此前后端跨域部署不受第三方 Cookie 限制；后端需在 `ALLOWED_ORIGINS` 中放行前端域名。
@@ -301,6 +321,7 @@ npm run deploy        # = npm run build && wrangler deploy，上传的是 dist/
 | `ALLOWED_ORIGINS` | 空 | 额外允许的 Origin（可选） |
 | `ROOM_TTL_SECONDS` | `21600` | 空 waiting 房间回收时间；`0` 关闭 |
 | `DISCONNECT_GRACE_SECONDS` | `60` | 掉线宽限，超时按弃权结算 |
+| `TANK_TICK_RATE` | `20` | 坦克 tick 频率；Workers 版建议/默认配置为 `10` |
 | `HOST` / `PORT` | — | 不使用；监听地址只由 `run.py --host/--port` 决定 |
 
 ### 前端（Vite 构建期变量）
